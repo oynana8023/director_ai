@@ -12,7 +12,7 @@ buildscript {
 
     dependencies {
         // --- 修改点2：升级 Gradle 插件版本到 8.9.1 以支持 image_picker ---
-        classpath 'com.android.tools.build:gradle:8.9.1'
+        classpath 'com.android.tools.build:gradle:8.11.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
