@@ -11,6 +11,7 @@ import '../models/llm_config.dart';
 import '../services/llm_config_store.dart';
 import '../services/llm_provider.dart';
 import '../utils/model_capability.dart';
+import '../services/api_config_service.dart';
 // =======================================================
 
 import '../providers/conversation_provider.dart';
@@ -19,7 +20,6 @@ import '../providers/chat_provider.dart';
 import '../models/screenplay.dart';
 import '../models/script.dart';
 import '../services/video_merger_service.dart';
-import '../services/api_config_service.dart';
 
 /// 设置页面
 class SettingsScreen extends StatefulWidget {
@@ -33,7 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ==================== 动态配置状态 ====================
   final _configStore = LLMConfigStore();
   List<LLMConfig> _customConfigs = [];
-  Map<String, String> _bindings = {}; // 记录当前绑定了哪个用途的配置ID
+  Map<String, UsageBinding> _bindings = {}; // 记录每个功能绑定的配置+模型
   // =======================================================
 
   @override
@@ -45,22 +45,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadCustomConfigs() async {
     final configs = await _configStore.loadAll();
-    if (mounted) {
-      setState(() {
-        _customConfigs = configs;
-      });
-    }
+    if (mounted) setState(() => _customConfigs = configs);
   }
 
   Future<void> _loadBindings() async {
     final bindings = await _configStore.getBindings();
-    if (mounted) {
-      setState(() {
-        _bindings = bindings;
-      });
-    }
+    if (mounted) setState(() => _bindings = bindings);
   }
-  // =======================================================
 
   @override
   Widget build(BuildContext context) {
@@ -69,11 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text(
           '设置',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF1C1C1E),
-          ),
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E)),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -111,11 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -127,41 +110,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 36, height: 36,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF10B981), Color(0xFF3B82F6)],
-                    ),
+                    gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF3B82F6)]),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.api_outlined,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.api_outlined, color: Colors.white, size: 20),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'API 配置',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
+                      Text('API 配置', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))),
                       SizedBox(height: 2),
-                      Text(
-                        '配置各服务的 API Key',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
+                      Text('配置各服务的 API Key', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93))),
                     ],
                   ),
                 ),
@@ -169,95 +132,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-          // ==================== 原有硬编码 API Key 列表（保留） ====================
+          // 老 Key（保留兼容，但已不生效）
           _buildApiKeyRow(
-            context,
-            '智谱 GLM-4.7',
-            ApiConfigService.maskApiKey(ApiConfigService.getZhipuApiKey()),
-            Icons.psychology_outlined,
-            const Color(0xFF8B5CF6),
-            () => _showApiKeyEditDialog(
-              context,
-              '智谱 GLM API Key',
-              ApiConfigService.getZhipuApiKey(),
-              (key) => ApiConfigService.setZhipuApiKey(key),
-            ),
+            context, '智谱 GLM-4.7', ApiConfigService.maskApiKey(ApiConfigService.getZhipuApiKey()),
+            Icons.psychology_outlined, const Color(0xFF8B5CF6),
+            () => _showApiKeyEditDialog(context, '智谱 GLM API Key',
+                ApiConfigService.getZhipuApiKey(), (key) => ApiConfigService.setZhipuApiKey(key)),
           ),
-          _buildPromoRow(
-            context,
-            '🚀 智谱 GLM Coding 超值订阅',
-            '20+ 编程工具无缝支持，限时惊喜价！',
-            const Color(0xFF8B5CF6),
-            'https://www.bigmodel.cn/glm-coding?ic=BUXAZXR3YZ',
+          _buildPromoRow(context, '🚀 智谱 GLM Coding 超值订阅', '20+ 编程工具无缝支持，限时惊喜价！',
+              const Color(0xFF8B5CF6), 'https://www.bigmodel.cn/glm-coding?ic=BUXAZXR3YZ'),
+          const Divider(height: 1),
+
+          _buildApiKeyRow(
+            context, '视频生成 (tuzi-api)', ApiConfigService.maskApiKey(ApiConfigService.getVideoApiKey()),
+            Icons.videocam_outlined, const Color(0xFFEC4899),
+            () => _showApiKeyEditDialog(context, '视频生成 API Key',
+                ApiConfigService.getVideoApiKey(), (key) => ApiConfigService.setVideoApiKey(key)),
           ),
           const Divider(height: 1),
 
           _buildApiKeyRow(
-            context,
-            '视频生成 (tuzi-api)',
-            ApiConfigService.maskApiKey(ApiConfigService.getVideoApiKey()),
-            Icons.videocam_outlined,
-            const Color(0xFFEC4899),
-            () => _showApiKeyEditDialog(
-              context,
-              '视频生成 API Key',
-              ApiConfigService.getVideoApiKey(),
-              (key) => ApiConfigService.setVideoApiKey(key),
-            ),
+            context, '图像生成 (tuzi-api)', ApiConfigService.maskApiKey(ApiConfigService.getImageApiKey()),
+            Icons.image_outlined, const Color(0xFFF59E0B),
+            () => _showApiKeyEditDialog(context, '图像生成 API Key',
+                ApiConfigService.getImageApiKey(), (key) => ApiConfigService.setImageApiKey(key)),
           ),
+          _buildPromoRow(context, '🎁 邀请注册获额度', '邀请好友双方各得 \$0.4 额度',
+              const Color(0xFFEC4899), 'https://api.tu-zi.com/register?aff=zTvc'),
           const Divider(height: 1),
 
           _buildApiKeyRow(
-            context,
-            '图像生成 (tuzi-api)',
-            ApiConfigService.maskApiKey(ApiConfigService.getImageApiKey()),
-            Icons.image_outlined,
-            const Color(0xFFF59E0B),
-            () => _showApiKeyEditDialog(
-              context,
-              '图像生成 API Key',
-              ApiConfigService.getImageApiKey(),
-              (key) => ApiConfigService.setImageApiKey(key),
-            ),
+            context, '豆包 ARK (图片识别)', ApiConfigService.maskApiKey(ApiConfigService.getDoubaoApiKey()),
+            Icons.visibility_outlined, const Color(0xFF10B981),
+            () => _showApiKeyEditDialog(context, '豆包 API Key',
+                ApiConfigService.getDoubaoApiKey(), (key) => ApiConfigService.setDoubaoApiKey(key)),
           ),
-          _buildPromoRow(
-            context,
-            '🎁 邀请注册获额度',
-            '邀请好友双方各得 \$0.4 额度',
-            const Color(0xFFEC4899),
-            'https://api.tu-zi.com/register?aff=zTvc',
-          ),
-          const Divider(height: 1),
 
-          _buildApiKeyRow(
-            context,
-            '豆包 ARK (图片识别)',
-            ApiConfigService.maskApiKey(ApiConfigService.getDoubaoApiKey()),
-            Icons.visibility_outlined,
-            const Color(0xFF10B981),
-            () => _showApiKeyEditDialog(
-              context,
-              '豆包 API Key',
-              ApiConfigService.getDoubaoApiKey(),
-              (key) => ApiConfigService.setDoubaoApiKey(key),
-            ),
-          ),
-          // =======================================================================
-
-          // ==================== 新增：动态自定义大模型绑定及列表 ====================
+          // ==================== 动态绑定区域 ====================
           const Divider(height: 1, thickness: 1),
-          
-          // 1. 绑定对话模型
+
           _buildBindingRow('对话模型', 'chat', Icons.chat_outlined),
-          // 2. 绑定视觉识别模型
           _buildBindingRow('视觉识别模型', 'vision', Icons.visibility_outlined),
-          // 3. 绑定图像生成模型
           _buildBindingRow('图像生成模型', 'image', Icons.image_outlined),
-          // 4. 绑定视频生成模型
           _buildBindingRow('视频生成模型', 'video', Icons.videocam_outlined),
-          
+
           const Divider(height: 1, thickness: 1),
 
+          // 已添加的自定义配置列表
           ..._customConfigs.map((config) => _buildDynamicConfigRow(config)),
 
           // 添加自定义模型的入口
@@ -280,19 +201,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '添加自定义 AI 模型',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1C1C1E),
-                          ),
-                        ),
+                        Text('添加自定义 AI 模型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))),
                         SizedBox(height: 2),
-                        Text(
-                          '支持 OpenAI、火山云、文心一言等兼容接口',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
-                        ),
+                        Text('支持 OpenAI、火山云、文心一言等兼容接口', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
                       ],
                     ),
                   ),
@@ -301,37 +212,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          // ==================================================================
 
-          // 提示信息
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Text(
-              '提示：API Key 将保存在本地，仅用于此设备。',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF8E8E93),
-              ),
-            ),
+            child: Text('提示：API Key 将保存在本地，仅用于此设备。',
+                style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
           ),
         ],
       ),
     );
   }
 
-  // ==================== 新增：绑定行渲染 ====================
+  // ==================== 绑定行 ====================
   Widget _buildBindingRow(String label, String usage, IconData icon) {
-    String? currentConfigName;
-    final boundId = _bindings[usage];
-    if (boundId != null) {
-      for (final config in _customConfigs) {
-        if (config.id == boundId) {
-          currentConfigName = config.name;
+    String? boundConfigName;
+    String? boundModelName;
+    final binding = _bindings[usage];
+    if (binding != null) {
+      for (final c in _customConfigs) {
+        if (c.id == binding.configId) {
+          boundConfigName = c.name;
+          for (final m in c.models) {
+            if (m.id == binding.modelId) { boundModelName = m.name; break; }
+          }
           break;
         }
       }
     }
 
+    final hasBinding = boundConfigName != null;
     return InkWell(
       onTap: () => _showBindingSelector(label, usage),
       child: Padding(
@@ -344,14 +253,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1C1C1E))),
                   const SizedBox(height: 2),
                   Text(
-                    currentConfigName ?? '未绑定',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: currentConfigName == null ? const Color(0xFFF87171) : const Color(0xFF10B981),
-                    ),
+                    hasBinding ? '$boundConfigName · ${boundModelName ?? binding!.modelId}' : '未绑定（点击选择）',
+                    style: TextStyle(fontSize: 12, color: hasBinding ? const Color(0xFF10B981) : const Color(0xFFF87171)),
                   ),
                 ],
               ),
@@ -363,39 +269,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 新增：绑定选择弹窗 ====================
+  // ==================== 绑定选择器（支持同一 Key 下选不同模型） ====================
   void _showBindingSelector(String label, String usage) {
     if (_customConfigs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先添加至少一个自定义模型')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先添加至少一个自定义模型')));
       return;
     }
+
+    final currentBinding = _bindings[usage];
+    final currentValue = currentBinding == null ? null : '${currentBinding.configId}::${currentBinding.modelId}';
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('选择【$label】使用的配置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: _customConfigs.map((config) {
-                return RadioListTile<String>(
-                  title: Text(config.name),
-                  subtitle: Text('模型: ${config.selectedModelId ?? "未选择"}'),
-                  value: config.id,
-                  groupValue: _bindings[usage],
-                  onChanged: (val) async {
-                    if (val != null) {
-                      await _configStore.setActiveConfig(usage, val);
-                      await _loadBindings();
-                      if (context.mounted) Navigator.pop(context);
-                    }
-                  },
-                );
-              }).toList(),
+          title: Text('选择【$label】使用的模型'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final config in _customConfigs) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+                      child: Text(config.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                    ...config.models.map((m) {
+                      final value = '${config.id}::${m.id}';
+                      return RadioListTile<String>(
+                        dense: true,
+                        title: Text(m.name, style: const TextStyle(fontSize: 13)),
+                        subtitle: Text('${m.capability} · ${m.description}', style: const TextStyle(fontSize: 11)),
+                        value: value,
+                        groupValue: currentValue,
+                        onChanged: (val) async {
+                          if (val == null) return;
+                          final parts = val.split('::');
+                          await _configStore.setActiveConfig(usage, parts[0], parts[1]);
+                          await ApiConfigService.refreshBindings();
+                          await _loadBindings();
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                      );
+                    }),
+                  ],
+                ],
+              ),
             ),
           ),
           actions: [
@@ -406,7 +327,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 渲染动态配置行 ====================
+  // ==================== 动态配置行 ====================
   Widget _buildDynamicConfigRow(LLMConfig config) {
     return InkWell(
       onTap: () => _showManageCustomConfigDialog(config),
@@ -420,31 +341,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    config.name,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF1C1C1E),
-                    ),
-                  ),
+                  Text(config.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1C1C1E))),
                   const SizedBox(height: 2),
-                  Text(
-                    '模型: ${config.selectedModelId ?? "未选择"}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF8E8E93),
-                    ),
-                  ),
+                  Text('包含 ${config.models.length} 个模型', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
                 ],
               ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
+              decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
               child: const Text('自定义', style: TextStyle(fontSize: 10, color: Color(0xFF10B981))),
             ),
             const SizedBox(width: 8),
@@ -455,7 +360,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 添加自定义模型的弹窗 ====================
+  // ==================== 添加自定义模型 ====================
   void _showAddCustomModelDialog(BuildContext context) {
     final nameController = TextEditingController();
     final urlController = TextEditingController();
@@ -481,7 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       TextField(
                         controller: nameController,
                         decoration: InputDecoration(
-                          labelText: '名称 (如 我的火山云)',
+                          labelText: '名称 (如 阿里百炼)',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
@@ -489,7 +394,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       TextField(
                         controller: urlController,
                         decoration: InputDecoration(
-                          labelText: 'BaseURL (如 https://api.openai.com/v1)',
+                          labelText: 'BaseURL (如 https://dashscope.aliyuncs.com/compatible-mode/v1)',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
@@ -508,9 +413,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: ElevatedButton.icon(
                           onPressed: isFetching ? null : () async {
                             if (urlController.text.trim().isEmpty || keyController.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('请填写 BaseURL 和 API Key')),
-                              );
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请填写 BaseURL 和 API Key')));
                               return;
                             }
                             setDialogState(() => isFetching = true);
@@ -524,7 +427,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               final provider = LLMProvider(tempConfig);
                               final ids = await provider.fetchModels();
                               final models = ids.map((id) => ModelCapabilityResolver.resolve(id)).toList();
-
                               setDialogState(() {
                                 fetchedModels = models;
                                 isFetching = false;
@@ -536,8 +438,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             }
                           },
-                          icon: isFetching 
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+                          icon: isFetching
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.cloud_download),
                           label: Text(isFetching ? '获取中...' : '获取模型列表'),
                           style: ElevatedButton.styleFrom(
@@ -549,21 +451,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       if (fetchedModels.isNotEmpty) ...[
                         const SizedBox(height: 16),
-                        const Text('选择模型:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const Text('已获取到的模型（会全部保存）:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         const SizedBox(height: 8),
                         ...fetchedModels.map((m) => Card(
-                          margin: const EdgeInsets.only(bottom: 8),
+                          margin: const EdgeInsets.only(bottom: 6),
                           child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                            title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                            title: Text(m.name, style: const TextStyle(fontSize: 13)),
                             subtitle: Text('${m.capability} · ${m.description}', style: const TextStyle(fontSize: 11)),
-                            trailing: fetchedModels.first.id == m.id ? const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 20) : null,
-                            onTap: () {
-                              setDialogState(() {
-                                fetchedModels.remove(m);
-                                fetchedModels.insert(0, m);
-                              });
-                            },
                           ),
                         )),
                       ],
@@ -572,10 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('取消'),
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
                 ElevatedButton(
                   onPressed: fetchedModels.isEmpty ? null : () async {
                     final newConfig = LLMConfig(
@@ -584,7 +476,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       baseUrl: urlController.text.trim(),
                       apiKey: keyController.text.trim(),
                       models: fetchedModels,
-                      selectedModelId: fetchedModels.first.id,
+                      selectedModelId: null, // 不在配置级选，改到绑定时选
                     );
                     final updated = [..._customConfigs, newConfig];
                     await _configStore.saveAll(updated);
@@ -605,7 +497,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 管理自定义配置弹窗 ====================
+  // ==================== 管理自定义配置 ====================
   void _showManageCustomConfigDialog(LLMConfig config) {
     showDialog(
       context: context,
@@ -620,28 +512,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text('BaseURL: ${config.baseUrl}', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
                 const SizedBox(height: 12),
-                const Text('选择当前使用的模型:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                Text('包含 ${config.models.length} 个模型：', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 8),
-                ...config.models.map((m) => RadioListTile<String>(
-                  title: Text(m.name, style: const TextStyle(fontSize: 14)),
-                  subtitle: Text('${m.capability} · ${m.description}', style: const TextStyle(fontSize: 11)),
-                  value: m.id,
-                  groupValue: config.selectedModelId,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  onChanged: (val) async {
-                    if (val != null) {
-                      final updated = _customConfigs.map((c) {
-                        if (c.id == config.id) {
-                          c.selectedModelId = val;
-                        }
-                        return c;
-                      }).toList();
-                      await _configStore.saveAll(updated);
-                      setState(() => _customConfigs = updated);
-                      if (context.mounted) Navigator.pop(context);
-                    }
-                  },
+                ...config.models.map((m) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text('• ${m.name}  (${m.capability})', style: const TextStyle(fontSize: 13)),
                 )),
               ],
             ),
@@ -657,26 +532,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextButton.styleFrom(foregroundColor: const Color(0xFFF87171)),
               child: const Text('删除此配置'),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
           ],
         );
       },
     );
   }
 
-  // ==================== 以下为原有保留的方法 ====================
+  // ==================== 原有辅助方法 ====================
   Widget _buildPromoRow(BuildContext context, String title, String description, Color color, String url) {
     return InkWell(
       onTap: () => _launchUrl(url),
-      borderRadius: BorderRadius.circular(0),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [color.withOpacity(0.08), color.withOpacity(0.03)]),
-        ),
+        decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withOpacity(0.08), color.withOpacity(0.03)])),
         child: Row(
           children: [
             Container(
@@ -714,15 +583,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Widget _buildApiKeyRow(BuildContext context, String label, String maskedKey, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(0),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -763,7 +629,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextField(
                 controller: controller,
                 obscureText: !isVisible,
-                maxLines: isVisible ? null : 1,
                 decoration: InputDecoration(
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   hintText: '请输入 API Key',
@@ -774,7 +639,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('提示：API Key 将保存在本地，仅用于此设备。', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+              const Text('提示：API Key 将保存在本地，仅用于此设备。', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
             ],
           ),
           actions: [
@@ -809,6 +674,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
   }
+
+  // ==================== 以下为原有其他模块，全部保留 ====================
 
   Widget _buildCacheManagementCard(BuildContext context, ConversationProvider provider) {
     return Container(
@@ -1113,19 +980,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(children: [Icon(Icons.science, color: Color(0xFF8B5CF6)), SizedBox(width: 8), Text('Mock 测试')]),
-        content: Column(
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('将使用以下测试视频进行合并流程演示：'),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(8)),
-              child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('📹 视频 1: c855cd6...mp4', style: TextStyle(fontSize: 13)), SizedBox(height: 4), Text('📹 视频 2: fc5a598...mp4', style: TextStyle(fontSize: 13))]),
-            ),
-            const SizedBox(height: 12),
-            const Text('注：Mock 模式下实际只下载第一个视频作为"合并结果"', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            Text('将使用 7 个测试视频进行合并流程演示。'),
+            SizedBox(height: 12),
+            Text('注：Mock 模式下实际只下载第一个视频作为"合并结果"', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
           ],
         ),
         actions: [
@@ -1169,8 +1030,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ],
                         ),
                       )),
-                if (provider.conversations.length > 5)
-                  Padding(padding: const EdgeInsets.only(top: 8), child: Text('还有 ${provider.conversations.length - 5} 个会话...', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)))),
               ],
             ),
           ),
@@ -1218,8 +1077,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text('提示: 长按文本可复制全部内容', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               ],
             ),
             actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
