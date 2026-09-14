@@ -6,12 +6,12 @@ import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-// ==================== 新增动态配置的引用 ====================
+// ==================== 动态配置引用 ====================
 import '../models/llm_config.dart';
 import '../services/llm_config_store.dart';
 import '../services/llm_provider.dart';
 import '../utils/model_capability.dart';
-// ==========================================================
+// =======================================================
 
 import '../providers/conversation_provider.dart';
 import '../providers/video_merge_provider.dart';
@@ -30,23 +30,33 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // ==================== 新增状态变量 ====================
+  // ==================== 动态配置状态 ====================
   final _configStore = LLMConfigStore();
   List<LLMConfig> _customConfigs = [];
+  Map<String, String> _bindings = {}; // 记录当前绑定了哪个用途的配置ID
   // =======================================================
 
   @override
   void initState() {
     super.initState();
     _loadCustomConfigs();
+    _loadBindings();
   }
 
-  // ==================== 新增加载方法 ====================
   Future<void> _loadCustomConfigs() async {
     final configs = await _configStore.loadAll();
     if (mounted) {
       setState(() {
         _customConfigs = configs;
+      });
+    }
+  }
+
+  Future<void> _loadBindings() async {
+    final bindings = await _configStore.getBindings();
+    if (mounted) {
+      setState(() {
+        _bindings = bindings;
       });
     }
   }
@@ -78,27 +88,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // API 配置卡片
               _buildApiConfigCard(context),
-
               const SizedBox(height: 24),
-
-              // 缓存管理卡片
               _buildCacheManagementCard(context, convProvider),
-
               const SizedBox(height: 24),
-
-              // 数据库查看卡片
               _buildDatabaseCard(context),
-
               const SizedBox(height: 24),
-
-              // 视频合并卡片
               _buildVideoMergeCard(context, mergeProvider),
-
               const SizedBox(height: 24),
-
-              // 关于信息
               _buildAboutCard(context),
             ],
           );
@@ -173,7 +170,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // ==================== 原有硬编码 API Key 列表（保留） ====================
-          // 智谱 GLM 配置
           _buildApiKeyRow(
             context,
             '智谱 GLM-4.7',
@@ -248,10 +244,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           // =======================================================================
 
-          // ==================== 新增：动态自定义大模型列表 ====================
+          // ==================== 新增：动态自定义大模型绑定及列表 ====================
           const Divider(height: 1, thickness: 1),
-          ..._customConfigs.map((config) => _buildDynamicConfigRow(config)),
           
+          // 1. 绑定对话模型
+          _buildBindingRow('对话模型', 'chat', Icons.chat_outlined),
+          // 2. 绑定视觉识别模型
+          _buildBindingRow('视觉识别模型', 'vision', Icons.visibility_outlined),
+          // 3. 绑定图像生成模型
+          _buildBindingRow('图像生成模型', 'image', Icons.image_outlined),
+          // 4. 绑定视频生成模型
+          _buildBindingRow('视频生成模型', 'video', Icons.videocam_outlined),
+          
+          const Divider(height: 1, thickness: 1),
+
+          ..._customConfigs.map((config) => _buildDynamicConfigRow(config)),
+
           // 添加自定义模型的入口
           InkWell(
             onTap: () => _showAddCustomModelDialog(context),
@@ -311,7 +319,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 新增：渲染动态配置行 ====================
+  // ==================== 新增：绑定行渲染 ====================
+  Widget _buildBindingRow(String label, String usage, IconData icon) {
+    String? currentConfigName;
+    final boundId = _bindings[usage];
+    if (boundId != null) {
+      for (final config in _customConfigs) {
+        if (config.id == boundId) {
+          currentConfigName = config.name;
+          break;
+        }
+      }
+    }
+
+    return InkWell(
+      onTap: () => _showBindingSelector(label, usage),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: const Color(0xFF3B82F6)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 2),
+                  Text(
+                    currentConfigName ?? '未绑定',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: currentConfigName == null ? const Color(0xFFF87171) : const Color(0xFF10B981),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 20, color: Color(0xFF8E8E93)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== 新增：绑定选择弹窗 ====================
+  void _showBindingSelector(String label, String usage) {
+    if (_customConfigs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先添加至少一个自定义模型')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('选择【$label】使用的配置'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: _customConfigs.map((config) {
+                return RadioListTile<String>(
+                  title: Text(config.name),
+                  subtitle: Text('模型: ${config.selectedModelId ?? "未选择"}'),
+                  value: config.id,
+                  groupValue: _bindings[usage],
+                  onChanged: (val) async {
+                    if (val != null) {
+                      await _configStore.setActiveConfig(usage, val);
+                      await _loadBindings();
+                      if (context.mounted) Navigator.pop(context);
+                    }
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          ],
+        );
+      },
+    );
+  }
+
+  // ==================== 渲染动态配置行 ====================
   Widget _buildDynamicConfigRow(LLMConfig config) {
     return InkWell(
       onTap: () => _showManageCustomConfigDialog(config),
@@ -360,7 +455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 新增：添加自定义模型的弹窗 ====================
+  // ==================== 添加自定义模型的弹窗 ====================
   void _showAddCustomModelDialog(BuildContext context) {
     final nameController = TextEditingController();
     final urlController = TextEditingController();
@@ -429,7 +524,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               final provider = LLMProvider(tempConfig);
                               final ids = await provider.fetchModels();
                               final models = ids.map((id) => ModelCapabilityResolver.resolve(id)).toList();
-                              
+
                               setDialogState(() {
                                 fetchedModels = models;
                                 isFetching = false;
@@ -465,7 +560,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             trailing: fetchedModels.first.id == m.id ? const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 20) : null,
                             onTap: () {
                               setDialogState(() {
-                                // 将选中的模型放到列表第一位，方便保存时直接取第一个
                                 fetchedModels.remove(m);
                                 fetchedModels.insert(0, m);
                               });
@@ -511,7 +605,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ==================== 新增：管理自定义配置弹窗（切换模型/删除） ====================
+  // ==================== 管理自定义配置弹窗 ====================
   void _showManageCustomConfigDialog(LLMConfig config) {
     showDialog(
       context: context,
@@ -572,64 +666,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
   }
-  // ==================================================================
 
-  /// 推广信息行（保留原样）
-  Widget _buildPromoRow(
-    BuildContext context,
-    String title,
-    String description,
-    Color color,
-    String url,
-  ) {
+  // ==================== 以下为原有保留的方法 ====================
+  Widget _buildPromoRow(BuildContext context, String title, String description, Color color, String url) {
     return InkWell(
       onTap: () => _launchUrl(url),
       borderRadius: BorderRadius.circular(0),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              color.withOpacity(0.08),
-              color.withOpacity(0.03),
-            ],
-          ),
+          gradient: LinearGradient(colors: [color.withOpacity(0.08), color.withOpacity(0.03)]),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.card_giftcard_outlined,
-                size: 16,
-                color: color,
-              ),
+              decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+              child: Icon(Icons.card_giftcard_outlined, size: 16, color: color),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
+                  Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
                   const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF8E8E93),
-                    ),
-                  ),
+                  Text(description, style: const TextStyle(fontSize: 11, color: Color(0xFF8E8E93))),
                 ],
               ),
             ),
@@ -638,52 +700,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               decoration: BoxDecoration(
                 color: color.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: color.withOpacity(0.3),
-                  width: 1,
-                ),
+                border: Border.all(color: color.withOpacity(0.3), width: 1),
               ),
-              child: Text(
-                '查看',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
+              child: Text('查看', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
             ),
             const SizedBox(width: 4),
-            Icon(
-              Icons.chevron_right,
-              size: 18,
-              color: color.withOpacity(0.5),
-            ),
+            Icon(Icons.chevron_right, size: 18, color: color.withOpacity(0.5)),
           ],
         ),
       ),
     );
   }
 
-  /// 打开链接（保留原样）
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
-      await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
-  /// API Key 行（保留原样）
-  Widget _buildApiKeyRow(
-    BuildContext context,
-    String label,
-    String maskedKey,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
+  Widget _buildApiKeyRow(BuildContext context, String label, String maskedKey, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(0),
@@ -697,44 +733,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF1C1C1E),
-                    ),
-                  ),
+                  Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1C1C1E))),
                   const SizedBox(height: 2),
-                  Text(
-                    maskedKey,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF8E8E93),
-                      fontFamily: 'monospace',
-                    ),
-                  ),
+                  Text(maskedKey, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93), fontFamily: 'monospace')),
                 ],
               ),
             ),
-            const Icon(
-              Icons.chevron_right,
-              size: 20,
-              color: Color(0xFF8E8E93),
-            ),
+            const Icon(Icons.chevron_right, size: 20, color: Color(0xFF8E8E93)),
           ],
         ),
       ),
     );
   }
 
-  /// 显示 API Key 编辑对话框（保留原样，用于原有硬编码API）
-  Future<void> _showApiKeyEditDialog(
-    BuildContext context,
-    String title,
-    String currentValue,
-    Future<void> Function(String) onSave,
-  ) async {
+  Future<void> _showApiKeyEditDialog(BuildContext context, String title, String currentValue, Future<void> Function(String) onSave) async {
     final controller = TextEditingController(text: currentValue);
     bool isVisible = false;
 
@@ -753,53 +765,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 obscureText: !isVisible,
                 maxLines: isVisible ? null : 1,
                 decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   hintText: '请输入 API Key',
                   suffixIcon: IconButton(
-                    icon: Icon(
-                      isVisible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                    ),
-                    onPressed: () {
-                      setDialogState(() {
-                        isVisible = !isVisible;
-                      });
-                    },
+                    icon: Icon(isVisible ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                    onPressed: () => setDialogState(() => isVisible = !isVisible),
                   ),
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
-                '提示：API Key 将保存在本地，仅用于此设备。',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF8E8E93),
-                ),
-              ),
+              Text('提示：API Key 将保存在本地，仅用于此设备。', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
             FilledButton(
               onPressed: () {
                 if (controller.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('API Key 不能为空'),
-                      backgroundColor: Color(0xFFF87171),
-                    ),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API Key 不能为空'), backgroundColor: Color(0xFFF87171)));
                   return;
                 }
                 Navigator.pop(context, true);
               },
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF8B5CF6),
-              ),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B5CF6)),
               child: const Text('保存'),
             ),
           ],
@@ -811,44 +799,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       try {
         await onSave(controller.text.trim());
         if (context.mounted) {
-          setState(() {}); // 刷新界面
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('API Key 已保存'),
-              backgroundColor: Color(0xFF10B981),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          setState(() {});
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API Key 已保存'), backgroundColor: Color(0xFF10B981), behavior: SnackBarBehavior.floating));
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('保存失败: $e'),
-              backgroundColor: const Color(0xFFF87171),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating));
         }
       }
     }
   }
 
-  // ==================== 以下为原有其他模块，全部保留，未做任何更改 ====================
-
   Widget _buildCacheManagementCard(BuildContext context, ConversationProvider provider) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -856,59 +820,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.storage_outlined,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
+                Container(width: 36, height: 36, decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)]), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.storage_outlined, color: Colors.white, size: 20)),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '缓存管理',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        '自动清理 2 天未访问的缓存',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('缓存管理', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))), SizedBox(height: 2), Text('自动清理 2 天未访问的缓存', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)))])),
               ],
             ),
           ),
           FutureBuilder<CacheStats>(
             future: provider.getCacheStats(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                );
-              }
+              if (!snapshot.hasData) return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
               final stats = snapshot.data!;
               return Column(
                 children: [
@@ -927,39 +848,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => _clearExpiredCache(context, provider),
-                    icon: const Icon(Icons.cleaning_services_outlined, size: 20),
-                    label: const Text('清理过期缓存'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF8B5CF6),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+                SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => _clearExpiredCache(context, provider), icon: const Icon(Icons.cleaning_services_outlined, size: 20), label: const Text('清理过期缓存'), style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B5CF6), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _clearAllCache(context, provider),
-                    icon: const Icon(Icons.delete_sweep_outlined, size: 20),
-                    label: const Text('清空所有缓存'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFF87171),
-                      side: const BorderSide(color: Color(0xFFF87171)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+                SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _clearAllCache(context, provider), icon: const Icon(Icons.delete_sweep_outlined, size: 20), label: const Text('清空所有缓存'), style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF87171), side: const BorderSide(color: Color(0xFFF87171)), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
               ],
             ),
           ),
@@ -975,22 +866,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Icon(icon, size: 18, color: const Color(0xFF8B5CF6)),
           const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF8E8E93),
-            ),
-          ),
+          Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF8E8E93))),
           const Spacer(),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1C1C1E),
-            ),
-          ),
+          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))),
         ],
       ),
     );
@@ -998,17 +876,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildVideoMergeCard(BuildContext context, VideoMergeProvider provider) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1016,45 +884,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.video_library_outlined,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
+                Container(width: 36, height: 36, decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.video_library_outlined, color: Colors.white, size: 20)),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '视频合并',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        '将场景视频合并为完整视频',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('视频合并', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))), SizedBox(height: 2), Text('将场景视频合并为完整视频', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)))])),
               ],
             ),
           ),
@@ -1063,80 +895,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildStatRow('占用空间', provider.mergedVideosSizeFormatted, Icons.sd_storage_outlined),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: OutlinedButton.icon(
-              onPressed: () => _testMergeWithMockVideos(context, provider),
-              icon: const Icon(Icons.science, size: 18),
-              label: const Text('🧪 测试7场景合并'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF8B5CF6),
-                side: const BorderSide(color: Color(0xFF8B5CF6)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
+            child: OutlinedButton.icon(onPressed: () => _testMergeWithMockVideos(context, provider), icon: const Icon(Icons.science, size: 18), label: const Text('🧪 测试7场景合并'), style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF8B5CF6), side: const BorderSide(color: Color(0xFF8B5CF6)), padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)))),
           ),
           if (VideoMergerService.useMockMode)
             Container(
               margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEDE9FE),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFA78BFA)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.science, color: Color(0xFF7C3AED), size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Mock 模式：模拟合并流程，实际下载第一个视频',
-                      style: TextStyle(color: Color(0xFF7C3AED), fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
+              decoration: BoxDecoration(color: const Color(0xFFEDE9FE), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFA78BFA))),
+              child: const Row(children: [Icon(Icons.science, color: Color(0xFF7C3AED), size: 20), SizedBox(width: 8), Expanded(child: Text('Mock 模式：模拟合并流程，实际下载第一个视频', style: TextStyle(color: Color(0xFF7C3AED), fontSize: 13)))]),
             ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: provider.isMerging ? null : () => _showMergeDialog(context, provider),
-                    icon: provider.isMerging
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.merge_type_outlined, size: 20),
-                    label: Text(provider.isMerging ? provider.statusMessage : '合并场景视频'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFEC4899),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                if (provider.isMerging)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: LinearProgressIndicator(
-                      value: provider.progress,
-                      backgroundColor: const Color(0xFFF3F4F6),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC4899)),
-                    ),
-                  ),
+                SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: provider.isMerging ? null : () => _showMergeDialog(context, provider), icon: provider.isMerging ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.merge_type_outlined, size: 20), label: Text(provider.isMerging ? provider.statusMessage : '合并场景视频'), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEC4899), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
+                if (provider.isMerging) Padding(padding: const EdgeInsets.only(top: 12), child: LinearProgressIndicator(value: provider.progress, backgroundColor: const Color(0xFFF3F4F6), valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC4899)))),
               ],
             ),
           ),
@@ -1147,17 +920,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildDatabaseCard(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1165,45 +928,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.storage,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
+                Container(width: 36, height: 36, decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.storage, color: Colors.white, size: 20)),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '数据库查看',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        '查看会话和消息数据',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('数据库查看', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))), SizedBox(height: 2), Text('查看会话和消息数据', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)))])),
               ],
             ),
           ),
@@ -1213,8 +940,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   _buildStatRow('会话数量', '${provider.conversations.length} 个', Icons.folder_outlined),
                   const Divider(height: 1),
-                  if (provider.currentConversation != null)
-                    _buildStatRow('当前会话消息', '${provider.currentMessages.length} 条', Icons.message_outlined),
+                  if (provider.currentConversation != null) _buildStatRow('当前会话消息', '${provider.currentMessages.length} 条', Icons.message_outlined),
                   if (provider.currentConversation != null) const Divider(height: 1),
                   _buildStatRow('数据库路径', 'hive_db/', Icons.folder_open_outlined),
                 ],
@@ -1225,39 +951,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => _showDatabaseViewer(context),
-                    icon: const Icon(Icons.table_view_outlined, size: 20),
-                    label: const Text('查看数据详情'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B82F6),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+                SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => _showDatabaseViewer(context), icon: const Icon(Icons.table_view_outlined, size: 20), label: const Text('查看数据详情'), style: FilledButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _exportDatabase(context),
-                    icon: const Icon(Icons.download_outlined, size: 20),
-                    label: const Text('导出数据 (JSON)'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF8B5CF6),
-                      side: const BorderSide(color: Color(0xFF8B5CF6)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+                SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _exportDatabase(context), icon: const Icon(Icons.download_outlined, size: 20), label: const Text('导出数据 (JSON)'), style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF8B5CF6), side: const BorderSide(color: Color(0xFF8B5CF6)), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
               ],
             ),
           ),
@@ -1268,17 +964,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildAboutCard(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1286,45 +972,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.info_outline,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
+                Container(width: 36, height: 36, decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)]), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.info_outline, color: Colors.white, size: 20)),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '关于',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'AI 漫导 - 将创意转化为动漫视频',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('关于', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E))), SizedBox(height: 2), Text('AI 漫导 - 将创意转化为动漫视频', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)))])),
               ],
             ),
           ),
@@ -1349,59 +999,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildAboutRow(String label, String value) {
     return Row(
       children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF8E8E93),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF1C1C1E),
-            ),
-          ),
-        ),
+        SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF8E8E93)))),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)))),
       ],
     );
   }
 
   Future<void> _clearExpiredCache(BuildContext context, ConversationProvider provider) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    showDialog(context: context, barrierDismissible: false, builder: (context) => const Center(child: CircularProgressIndicator()));
     try {
       final result = await provider.clearAllCache();
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('清理完成：删除 ${result.removedCount} 个文件，释放 ${result.freedSpaceFormatted}'),
-            backgroundColor: const Color(0xFF10B981),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('清理完成：删除 ${result.removedCount} 个文件，释放 ${result.freedSpaceFormatted}'), backgroundColor: const Color(0xFF10B981), behavior: SnackBarBehavior.floating));
       }
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('清理失败: $e'),
-            backgroundColor: const Color(0xFFF87171),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('清理失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating));
       }
     }
   }
@@ -1414,50 +1029,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('清空所有缓存'),
         content: const Text('确定要清空所有缓存吗？这将释放所有缓存空间，但不会删除对话记录。'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFF87171),
-            ),
-            child: const Text('清空'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF87171)), child: const Text('清空')),
         ],
       ),
     );
     if (confirmed == true) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      showDialog(context: context, barrierDismissible: false, builder: (context) => const Center(child: CircularProgressIndicator()));
       try {
         await provider.clearAllCacheForce();
         if (context.mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('已清空所有缓存'),
-              backgroundColor: Color(0xFF10B981),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已清空所有缓存'), backgroundColor: Color(0xFF10B981), behavior: SnackBarBehavior.floating));
         }
       } catch (e) {
         if (context.mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('清空失败: $e'),
-              backgroundColor: const Color(0xFFF87171),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('清空失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating));
         }
       }
     }
@@ -1467,24 +1055,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final chatProvider = context.read<ChatProvider>();
     final currentScreenplay = chatProvider.screenplayController.currentScreenplay;
     if (currentScreenplay == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前没有可合并的剧本，请先完成视频生成'),
-          backgroundColor: Color(0xFFF87171),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('当前没有可合并的剧本，请先完成视频生成'), backgroundColor: Color(0xFFF87171), behavior: SnackBarBehavior.floating));
       return;
     }
     final scenesWithVideo = currentScreenplay.scenes.where((s) => s.videoUrl != null).length;
     if (scenesWithVideo == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前剧本没有已生成的视频'),
-          backgroundColor: Color(0xFFF87171),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('当前剧本没有已生成的视频'), backgroundColor: Color(0xFFF87171), behavior: SnackBarBehavior.floating));
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -1502,33 +1078,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             Text('已生成视频: $scenesWithVideo 个'),
             const SizedBox(height: 16),
-            const Text(
-              '是否将这些场景视频合并为完整视频？',
-              style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)),
-            ),
+            const Text('是否将这些场景视频合并为完整视频？', style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93))),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFEC4899),
-            ),
-            child: const Text('开始合并'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEC4899)), child: const Text('开始合并')),
         ],
       ),
     );
     if (confirmed == true && context.mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => _MergeProgressDialog(screenplay: currentScreenplay),
-      );
+      showDialog(context: context, barrierDismissible: false, builder: (context) => _MergeProgressDialog(screenplay: currentScreenplay));
       provider.mergeVideos(currentScreenplay);
     }
   }
@@ -1552,13 +1112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.science, color: Color(0xFF8B5CF6)),
-            SizedBox(width: 8),
-            Text('Mock 测试'),
-          ],
-        ),
+        title: const Row(children: [Icon(Icons.science, color: Color(0xFF8B5CF6)), SizedBox(width: 8), Text('Mock 测试')]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1567,47 +1121,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('📹 视频 1: c855cd6...mp4', style: TextStyle(fontSize: 13)),
-                  SizedBox(height: 4),
-                  Text('📹 视频 2: fc5a598...mp4', style: TextStyle(fontSize: 13)),
-                ],
-              ),
+              decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(8)),
+              child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('📹 视频 1: c855cd6...mp4', style: TextStyle(fontSize: 13)), SizedBox(height: 4), Text('📹 视频 2: fc5a598...mp4', style: TextStyle(fontSize: 13))]),
             ),
             const SizedBox(height: 12),
-            const Text(
-              '注：Mock 模式下实际只下载第一个视频作为"合并结果"',
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-            ),
+            const Text('注：Mock 模式下实际只下载第一个视频作为"合并结果"', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF8B5CF6),
-            ),
-            child: const Text('开始测试'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B5CF6)), child: const Text('开始测试')),
         ],
       ),
     );
     if (confirmed == true && context.mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => _MergeProgressDialog(screenplay: mockScreenplay),
-      );
+      showDialog(context: context, barrierDismissible: false, builder: (context) => _MergeProgressDialog(screenplay: mockScreenplay));
       provider.mergeVideos(mockScreenplay);
     }
   }
@@ -1642,31 +1170,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       )),
                 if (provider.conversations.length > 5)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text('还有 ${provider.conversations.length - 5} 个会话...', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-                  ),
+                  Padding(padding: const EdgeInsets.only(top: 8), child: Text('还有 ${provider.conversations.length - 5} 个会话...', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)))),
               ],
             ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
       ),
     );
   }
 
   Future<void> _exportDatabase(BuildContext context) async {
     final provider = context.read<ConversationProvider>();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
+    showDialog(context: context, barrierDismissible: false, builder: (context) => const Center(child: CircularProgressIndicator()));
     try {
       final exportData = {
         'conversations': provider.conversations.map((conv) => {
@@ -1706,18 +1222,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Text('提示: 长按文本可复制全部内容', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               ],
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-            ],
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating));
       }
     }
   }
@@ -1739,17 +1251,10 @@ class _MergeProgressDialog extends StatelessWidget {
             children: [
               Text(provider.statusMessage, style: const TextStyle(fontSize: 14)),
               const SizedBox(height: 16),
-              LinearProgressIndicator(
-                value: provider.progress,
-                backgroundColor: const Color(0xFFF3F4F6),
-                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC4899)),
-              ),
+              LinearProgressIndicator(value: provider.progress, backgroundColor: const Color(0xFFF3F4F6), valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC4899))),
               const SizedBox(height: 8),
               Text('${(provider.progress * 100).toInt()}%', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-              if (provider.errorMessage != null) ...[
-                const SizedBox(height: 8),
-                Text(provider.errorMessage!, style: const TextStyle(fontSize: 12, color: Color(0xFFF87171))),
-              ],
+              if (provider.errorMessage != null) ...[const SizedBox(height: 8), Text(provider.errorMessage!, style: const TextStyle(fontSize: 12, color: Color(0xFFF87171)))],
             ],
           );
         },
@@ -1757,35 +1262,19 @@ class _MergeProgressDialog extends StatelessWidget {
       actions: [
         Consumer<VideoMergeProvider>(
           builder: (context, provider, child) {
-            if (provider.hasError) {
-              return FilledButton(
-                onPressed: () { provider.reset(); Navigator.pop(context); },
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF87171)),
-                child: const Text('关闭'),
-              );
-            }
+            if (provider.hasError) return FilledButton(onPressed: () { provider.reset(); Navigator.pop(context); }, style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF87171)), child: const Text('关闭'));
             if (provider.isCompleted) {
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (provider.mergedVideoFile != null)
                     TextButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => _MergedVideoPlayerScreen(videoFile: provider.mergedVideoFile!)),
-                        );
-                      },
+                      onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => _MergedVideoPlayerScreen(videoFile: provider.mergedVideoFile!))); },
                       icon: const Icon(Icons.play_circle_outline),
                       label: const Text('播放视频'),
                     ),
                   const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () { provider.reset(); Navigator.pop(context); },
-                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                    child: const Text('完成'),
-                  ),
+                  FilledButton(onPressed: () { provider.reset(); Navigator.pop(context); }, style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)), child: const Text('完成')),
                 ],
               );
             }
