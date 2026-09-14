@@ -1,7 +1,3 @@
-import '../models/llm_config.dart';
-import '../services/llm_config_store.dart';
-import '../services/llm_provider.dart';
-import '../utils/model_capability.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -9,6 +5,14 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+// ==================== 新增动态配置的引用 ====================
+import '../models/llm_config.dart';
+import '../services/llm_config_store.dart';
+import '../services/llm_provider.dart';
+import '../utils/model_capability.dart';
+// ==========================================================
+
 import '../providers/conversation_provider.dart';
 import '../providers/video_merge_provider.dart';
 import '../providers/chat_provider.dart';
@@ -26,6 +30,28 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // ==================== 新增状态变量 ====================
+  final _configStore = LLMConfigStore();
+  List<LLMConfig> _customConfigs = [];
+  // =======================================================
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomConfigs();
+  }
+
+  // ==================== 新增加载方法 ====================
+  Future<void> _loadCustomConfigs() async {
+    final configs = await _configStore.loadAll();
+    if (mounted) {
+      setState(() {
+        _customConfigs = configs;
+      });
+    }
+  }
+  // =======================================================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -146,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-          // API Key 列表
+          // ==================== 原有硬编码 API Key 列表（保留） ====================
           // 智谱 GLM 配置
           _buildApiKeyRow(
             context,
@@ -161,7 +187,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (key) => ApiConfigService.setZhipuApiKey(key),
             ),
           ),
-          // 智谱推广信息
           _buildPromoRow(
             context,
             '🚀 智谱 GLM Coding 超值订阅',
@@ -171,7 +196,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
 
-          // 视频生成配置
           _buildApiKeyRow(
             context,
             '视频生成 (tuzi-api)',
@@ -187,7 +211,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
 
-          // 图像生成配置
           _buildApiKeyRow(
             context,
             '图像生成 (tuzi-api)',
@@ -201,7 +224,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (key) => ApiConfigService.setImageApiKey(key),
             ),
           ),
-          // 兔子 API 推广信息
           _buildPromoRow(
             context,
             '🎁 邀请注册获额度',
@@ -224,6 +246,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (key) => ApiConfigService.setDoubaoApiKey(key),
             ),
           ),
+          // =======================================================================
+
+          // ==================== 新增：动态自定义大模型列表 ====================
+          const Divider(height: 1, thickness: 1),
+          ..._customConfigs.map((config) => _buildDynamicConfigRow(config)),
+          
+          // 添加自定义模型的入口
+          InkWell(
+            onTap: () => _showAddCustomModelDialog(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.add_circle_outline, size: 18, color: Color(0xFF3B82F6)),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '添加自定义 AI 模型',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1C1C1E),
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          '支持 OpenAI、火山云、文心一言等兼容接口',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, size: 20, color: Color(0xFF8E8E93)),
+                ],
+              ),
+            ),
+          ),
+          // ==================================================================
 
           // 提示信息
           Padding(
@@ -241,7 +311,270 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 推广信息行
+  // ==================== 新增：渲染动态配置行 ====================
+  Widget _buildDynamicConfigRow(LLMConfig config) {
+    return InkWell(
+      onTap: () => _showManageCustomConfigDialog(config),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            const Icon(Icons.model_training, size: 18, color: Color(0xFF8B5CF6)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    config.name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF1C1C1E),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '模型: ${config.selectedModelId ?? "未选择"}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF8E8E93),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text('自定义', style: TextStyle(fontSize: 10, color: Color(0xFF10B981))),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, size: 20, color: Color(0xFF8E8E93)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== 新增：添加自定义模型的弹窗 ====================
+  void _showAddCustomModelDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final urlController = TextEditingController();
+    final keyController = TextEditingController();
+    List<LLMModel> fetchedModels = [];
+    bool isFetching = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('添加自定义模型'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: '名称 (如 我的火山云)',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: urlController,
+                        decoration: InputDecoration(
+                          labelText: 'BaseURL (如 https://api.openai.com/v1)',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: keyController,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: 'API Key',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isFetching ? null : () async {
+                            if (urlController.text.trim().isEmpty || keyController.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('请填写 BaseURL 和 API Key')),
+                              );
+                              return;
+                            }
+                            setDialogState(() => isFetching = true);
+                            try {
+                              final tempConfig = LLMConfig(
+                                id: 'temp',
+                                name: nameController.text.trim(),
+                                baseUrl: urlController.text.trim(),
+                                apiKey: keyController.text.trim(),
+                              );
+                              final provider = LLMProvider(tempConfig);
+                              final ids = await provider.fetchModels();
+                              final models = ids.map((id) => ModelCapabilityResolver.resolve(id)).toList();
+                              
+                              setDialogState(() {
+                                fetchedModels = models;
+                                isFetching = false;
+                              });
+                            } catch (e) {
+                              setDialogState(() => isFetching = false);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                              }
+                            }
+                          },
+                          icon: isFetching 
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+                              : const Icon(Icons.cloud_download),
+                          label: Text(isFetching ? '获取中...' : '获取模型列表'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF3B82F6),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      if (fetchedModels.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('选择模型:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 8),
+                        ...fetchedModels.map((m) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                            title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                            subtitle: Text('${m.capability} · ${m.description}', style: const TextStyle(fontSize: 11)),
+                            trailing: fetchedModels.first.id == m.id ? const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 20) : null,
+                            onTap: () {
+                              setDialogState(() {
+                                // 将选中的模型放到列表第一位，方便保存时直接取第一个
+                                fetchedModels.remove(m);
+                                fetchedModels.insert(0, m);
+                              });
+                            },
+                          ),
+                        )),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: fetchedModels.isEmpty ? null : () async {
+                    final newConfig = LLMConfig(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      name: nameController.text.trim().isEmpty ? '未命名厂家' : nameController.text.trim(),
+                      baseUrl: urlController.text.trim(),
+                      apiKey: keyController.text.trim(),
+                      models: fetchedModels,
+                      selectedModelId: fetchedModels.first.id,
+                    );
+                    final updated = [..._customConfigs, newConfig];
+                    await _configStore.saveAll(updated);
+                    setState(() => _customConfigs = updated);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('保存配置'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ==================== 新增：管理自定义配置弹窗（切换模型/删除） ====================
+  void _showManageCustomConfigDialog(LLMConfig config) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(config.name),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('BaseURL: ${config.baseUrl}', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+                const SizedBox(height: 12),
+                const Text('选择当前使用的模型:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 8),
+                ...config.models.map((m) => RadioListTile<String>(
+                  title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                  subtitle: Text('${m.capability} · ${m.description}', style: const TextStyle(fontSize: 11)),
+                  value: m.id,
+                  groupValue: config.selectedModelId,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  onChanged: (val) async {
+                    if (val != null) {
+                      final updated = _customConfigs.map((c) {
+                        if (c.id == config.id) {
+                          c.selectedModelId = val;
+                        }
+                        return c;
+                      }).toList();
+                      await _configStore.saveAll(updated);
+                      setState(() => _customConfigs = updated);
+                      if (context.mounted) Navigator.pop(context);
+                    }
+                  },
+                )),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final updated = _customConfigs.where((c) => c.id != config.id).toList();
+                await _configStore.saveAll(updated);
+                setState(() => _customConfigs = updated);
+                if (context.mounted) Navigator.pop(context);
+              },
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFFF87171)),
+              child: const Text('删除此配置'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  // ==================================================================
+
+  /// 推广信息行（保留原样）
   Widget _buildPromoRow(
     BuildContext context,
     String title,
@@ -331,7 +664,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 打开链接
+  /// 打开链接（保留原样）
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
@@ -342,7 +675,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// API Key 行
+  /// API Key 行（保留原样）
   Widget _buildApiKeyRow(
     BuildContext context,
     String label,
@@ -395,7 +728,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 显示 API Key 编辑对话框
+  /// 显示 API Key 编辑对话框（保留原样，用于原有硬编码API）
   Future<void> _showApiKeyEditDialog(
     BuildContext context,
     String title,
@@ -501,6 +834,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ==================== 以下为原有其他模块，全部保留，未做任何更改 ====================
+
   Widget _buildCacheManagementCard(BuildContext context, ConversationProvider provider) {
     return Container(
       decoration: BoxDecoration(
@@ -517,7 +852,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -564,8 +898,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-
-          // 缓存统计
           FutureBuilder<CacheStats>(
             future: provider.getCacheStats(),
             builder: (context, snapshot) {
@@ -577,7 +909,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               }
-
               final stats = snapshot.data!;
               return Column(
                 children: [
@@ -592,8 +923,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-
-          // 操作按钮
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -683,7 +1012,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -730,13 +1058,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-
-          // 统计信息
           _buildStatRow('已合并视频', '${provider.mergedVideosCount} 个', Icons.video_collection_outlined),
           const Divider(height: 1),
           _buildStatRow('占用空间', provider.mergedVideosSizeFormatted, Icons.sd_storage_outlined),
-
-          // 测试按钮
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: OutlinedButton.icon(
@@ -753,8 +1077,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-
-          // Mock 模式提示
           if (VideoMergerService.useMockMode)
             Container(
               margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -777,8 +1099,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-
-          // 操作按钮
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -841,7 +1161,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -888,8 +1207,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-
-          // 数据库统计
           Consumer<ConversationProvider>(
             builder: (context, provider, child) {
               return Column(
@@ -904,8 +1221,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
-
-          // 操作按钮
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1065,13 +1380,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: CircularProgressIndicator(),
       ),
     );
-
     try {
       final result = await provider.clearAllCache();
-
       if (context.mounted) {
-        Navigator.pop(context); // 关闭 loading
-
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('清理完成：删除 ${result.removedCount} 个文件，释放 ${result.freedSpaceFormatted}'),
@@ -1082,8 +1394,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // 关闭 loading
-
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('清理失败: $e'),
@@ -1117,7 +1428,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
     if (confirmed == true) {
       showDialog(
         context: context,
@@ -1126,13 +1436,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: CircularProgressIndicator(),
         ),
       );
-
       try {
         await provider.clearAllCacheForce();
-
         if (context.mounted) {
-          Navigator.pop(context); // 关闭 loading
-
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('已清空所有缓存'),
@@ -1143,8 +1450,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } catch (e) {
         if (context.mounted) {
-          Navigator.pop(context); // 关闭 loading
-
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('清空失败: $e'),
@@ -1157,12 +1463,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// 显示视频合并对话框
   Future<void> _showMergeDialog(BuildContext context, VideoMergeProvider provider) async {
-    // 获取当前对话中的剧本
     final chatProvider = context.read<ChatProvider>();
     final currentScreenplay = chatProvider.screenplayController.currentScreenplay;
-
     if (currentScreenplay == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1173,8 +1476,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-
-    // 检查是否有足够的场景视频
     final scenesWithVideo = currentScreenplay.scenes.where((s) => s.videoUrl != null).length;
     if (scenesWithVideo == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1186,7 +1487,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1223,94 +1523,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
     if (confirmed == true && context.mounted) {
-      // 显示合并进度对话框
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => _MergeProgressDialog(screenplay: currentScreenplay),
       );
-
-      // 开始合并
       provider.mergeVideos(currentScreenplay);
     }
   }
 
-  /// 使用 Mock 数据测试合并功能
   Future<void> _testMergeWithMockVideos(BuildContext context, VideoMergeProvider provider) async {
-    // 创建 Mock 剧本，使用真实生成的7个视频链接进行测试
     final mockScreenplay = Screenplay(
       taskId: 'test_${DateTime.now().millisecondsSinceEpoch}',
       scriptTitle: '🧪 7场景视频合并测试',
       scenes: [
-        Scene(
-          sceneId: 1,
-          narration: '测试场景 1',
-          imagePrompt: 'Scene 1 for testing video merge',
-          videoPrompt: 'Camera panning scene',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/2e0938b114576d0217175cfa925e2a.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 2,
-          narration: '测试场景 2',
-          imagePrompt: 'Scene 2 for testing video merge',
-          videoPrompt: 'Camera zooming scene',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/6035dcf051bf3bf69dde8fec7c873c.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 3,
-          narration: '测试场景 3',
-          imagePrompt: 'Scene 3 for testing video merge',
-          videoPrompt: 'Camera tracking scene',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/a2a3187da7a7b2edaee219ccf38c53.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 4,
-          narration: '测试场景 4',
-          imagePrompt: 'Scene 4 for testing video merge',
-          videoPrompt: 'Camera rotating scene',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/19bea6cc8e95b5865fae775424c521.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 5,
-          narration: '测试场景 5',
-          imagePrompt: 'Scene 5 for testing video merge',
-          videoPrompt: 'Camera dollying scene',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/8b9e9d86218d8eeb26caddb2e921e6.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 6,
-          narration: '测试场景 6',
-          imagePrompt: 'Scene 6 for testing video merge',
-          videoPrompt: 'Camera crane shot',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/3f071fce050dbeac6298af16a5d31a.mp4',
-          status: SceneStatus.completed,
-        ),
-        Scene(
-          sceneId: 7,
-          narration: '测试场景 7',
-          imagePrompt: 'Scene 7 for testing video merge',
-          videoPrompt: 'Camera tracking final',
-          characterDescription: 'Test',
-          videoUrl: 'https://filesystem.site/cdn/20260104/8481a78572cecac738b1703924ae10.mp4',
-          status: SceneStatus.completed,
-        ),
+        Scene(sceneId: 1, narration: '测试场景 1', imagePrompt: 'Scene 1', videoPrompt: 'Camera panning', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/2e0938b114576d0217175cfa925e2a.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 2, narration: '测试场景 2', imagePrompt: 'Scene 2', videoPrompt: 'Camera zooming', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/6035dcf051bf3bf69dde8fec7c873c.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 3, narration: '测试场景 3', imagePrompt: 'Scene 3', videoPrompt: 'Camera tracking', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/a2a3187da7a7b2edaee219ccf38c53.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 4, narration: '测试场景 4', imagePrompt: 'Scene 4', videoPrompt: 'Camera rotating', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/19bea6cc8e95b5865fae775424c521.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 5, narration: '测试场景 5', imagePrompt: 'Scene 5', videoPrompt: 'Camera dollying', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/8b9e9d86218d8eeb26caddb2e921e6.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 6, narration: '测试场景 6', imagePrompt: 'Scene 6', videoPrompt: 'Camera crane', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/3f071fce050dbeac6298af16a5d31a.mp4', status: SceneStatus.completed),
+        Scene(sceneId: 7, narration: '测试场景 7', imagePrompt: 'Scene 7', videoPrompt: 'Camera tracking final', characterDescription: 'Test', videoUrl: 'https://filesystem.site/cdn/20260104/8481a78572cecac738b1703924ae10.mp4', status: SceneStatus.completed),
       ],
       status: ScreenplayStatus.completed,
     );
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1365,63 +1602,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
     if (confirmed == true && context.mounted) {
-      // 显示合并进度对话框
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => _MergeProgressDialog(screenplay: mockScreenplay),
       );
-
-      // 开始合并
       provider.mergeVideos(mockScreenplay);
     }
   }
 
-  /// 清空合并的视频
-  Future<void> _clearMergedVideos(BuildContext context, VideoMergeProvider provider) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('清空合并视频'),
-        content: const Text('确定要清空所有已合并的视频吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFF87171),
-            ),
-            child: const Text('清空'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await provider.clearAllMergedVideos();
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已清空所有合并视频'),
-            backgroundColor: Color(0xFF10B981),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  /// 显示数据库查看对话框
   void _showDatabaseViewer(BuildContext context) {
     final provider = context.read<ConversationProvider>();
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1434,10 +1626,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '会话总数: ${provider.conversations.length}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                ),
+                Text('会话总数: ${provider.conversations.length}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                 const SizedBox(height: 16),
                 if (provider.conversations.isEmpty)
                   const Text('暂无会话数据', style: TextStyle(color: Color(0xFF8E8E93)))
@@ -1447,24 +1636,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              conv.title,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            Text(
-                              '消息: ${conv.messageCount} | ${conv.updatedAt.toString().substring(0, 19)}',
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
-                            ),
+                            Text(conv.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text('消息: ${conv.messageCount} | ${conv.updatedAt.toString().substring(0, 19)}', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
                           ],
                         ),
                       )),
                 if (provider.conversations.length > 5)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '还有 ${provider.conversations.length - 5} 个会话...',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
-                    ),
+                    child: Text('还有 ${provider.conversations.length - 5} 个会话...', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
                   ),
               ],
             ),
@@ -1480,20 +1660,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 导出数据库为 JSON
   Future<void> _exportDatabase(BuildContext context) async {
     final provider = context.read<ConversationProvider>();
-
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
-
     try {
-      // 准备导出数据
       final exportData = {
         'conversations': provider.conversations.map((conv) => {
           'id': conv.id,
@@ -1506,14 +1680,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'exportTime': DateTime.now().toIso8601String(),
         'version': '1.0.0',
       };
-
-      // 转换为 JSON 字符串
       final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
-
       if (context.mounted) {
-        Navigator.pop(context); // 关闭 loading
-
-        // 显示结果
+        Navigator.pop(context);
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -1527,52 +1696,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  decoration: BoxDecoration(color: const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(8)),
                   child: SelectableText(
-                    jsonString.substring(0, jsonString.length > 500 ? 500 : jsonString.length) +
-                        (jsonString.length > 500 ? '\n\n... (已截断)' : ''),
+                    jsonString.substring(0, jsonString.length > 500 ? 500 : jsonString.length) + (jsonString.length > 500 ? '\n\n... (已截断)' : ''),
                     style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  '提示: 长按文本可复制全部内容',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
-                ),
+                const Text('提示: 长按文本可复制全部内容', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               ],
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('关闭'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
             ],
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // 关闭 loading
-
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('导出失败: $e'),
-            backgroundColor: const Color(0xFFF87171),
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text('导出失败: $e'), backgroundColor: const Color(0xFFF87171), behavior: SnackBarBehavior.floating),
         );
       }
     }
   }
 }
 
-/// 视频合并进度对话框
 class _MergeProgressDialog extends StatelessWidget {
   final Screenplay screenplay;
-
   const _MergeProgressDialog({required this.screenplay});
 
   @override
@@ -1585,10 +1737,7 @@ class _MergeProgressDialog extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                provider.statusMessage,
-                style: const TextStyle(fontSize: 14),
-              ),
+              Text(provider.statusMessage, style: const TextStyle(fontSize: 14)),
               const SizedBox(height: 16),
               LinearProgressIndicator(
                 value: provider.progress,
@@ -1596,16 +1745,10 @@ class _MergeProgressDialog extends StatelessWidget {
                 valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC4899)),
               ),
               const SizedBox(height: 8),
-              Text(
-                '${(provider.progress * 100).toInt()}%',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
-              ),
+              Text('${(provider.progress * 100).toInt()}%', style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               if (provider.errorMessage != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  provider.errorMessage!,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFFF87171)),
-                ),
+                Text(provider.errorMessage!, style: const TextStyle(fontSize: 12, color: Color(0xFFF87171))),
               ],
             ],
           );
@@ -1616,13 +1759,8 @@ class _MergeProgressDialog extends StatelessWidget {
           builder: (context, provider, child) {
             if (provider.hasError) {
               return FilledButton(
-                onPressed: () {
-                  provider.reset();
-                  Navigator.pop(context);
-                },
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFF87171),
-                ),
+                onPressed: () { provider.reset(); Navigator.pop(context); },
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF87171)),
                 child: const Text('关闭'),
               );
             }
@@ -1630,19 +1768,13 @@ class _MergeProgressDialog extends StatelessWidget {
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 播放视频按钮
                   if (provider.mergedVideoFile != null)
                     TextButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
-                        // 打开视频播放器
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (context) => _MergedVideoPlayerScreen(
-                              videoFile: provider.mergedVideoFile!,
-                            ),
-                          ),
+                          MaterialPageRoute(builder: (context) => _MergedVideoPlayerScreen(videoFile: provider.mergedVideoFile!)),
                         );
                       },
                       icon: const Icon(Icons.play_circle_outline),
@@ -1650,13 +1782,8 @@ class _MergeProgressDialog extends StatelessWidget {
                     ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: () {
-                      provider.reset();
-                      Navigator.pop(context);
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                    ),
+                    onPressed: () { provider.reset(); Navigator.pop(context); },
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
                     child: const Text('完成'),
                   ),
                 ],
@@ -1670,10 +1797,8 @@ class _MergeProgressDialog extends StatelessWidget {
   }
 }
 
-/// 合并视频播放页面
 class _MergedVideoPlayerScreen extends StatefulWidget {
   final File videoFile;
-
   const _MergedVideoPlayerScreen({required this.videoFile});
 
   @override
@@ -1696,39 +1821,17 @@ class _MergedVideoPlayerScreenState extends State<_MergedVideoPlayerScreen> {
     try {
       _videoController = VideoPlayerController.file(widget.videoFile);
       await _videoController.initialize();
-
       _chewieController = ChewieController(
         videoPlayerController: _videoController,
         autoPlay: true,
         looping: false,
         aspectRatio: _videoController.value.aspectRatio,
-        placeholder: Container(
-          color: Colors.black,
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-        ),
-        errorBuilder: (context, errorMessage) {
-          return Center(
-            child: Text(
-              '播放失败: $errorMessage',
-              style: const TextStyle(color: Colors.white),
-            ),
-          );
-        },
+        placeholder: Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+        errorBuilder: (context, errorMessage) => Center(child: Text('播放失败: $errorMessage', style: const TextStyle(color: Colors.white))),
       );
-
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-        });
-      }
+      if (mounted) setState(() => _isInitialized = true);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = '初始化播放器失败: $e';
-        });
-      }
+      if (mounted) setState(() => _error = '初始化播放器失败: $e');
     }
   }
 
@@ -1748,7 +1851,6 @@ class _MergedVideoPlayerScreenState extends State<_MergedVideoPlayerScreen> {
         foregroundColor: Colors.white,
         title: const Text('合并视频预览'),
         actions: [
-          // 显示文件路径
           IconButton(
             onPressed: () {
               showDialog(
@@ -1761,18 +1863,10 @@ class _MergedVideoPlayerScreenState extends State<_MergedVideoPlayerScreen> {
                     children: [
                       const Text('文件路径:', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      SelectableText(
-                        widget.videoFile.path,
-                        style: const TextStyle(fontSize: 12),
-                      ),
+                      SelectableText(widget.videoFile.path, style: const TextStyle(fontSize: 12)),
                     ],
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('关闭'),
-                    ),
-                  ],
+                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
                 ),
               );
             },
@@ -1788,11 +1882,7 @@ class _MergedVideoPlayerScreenState extends State<_MergedVideoPlayerScreen> {
                 children: [
                   const Icon(Icons.error_outline, color: Colors.red, size: 48),
                   const SizedBox(height: 16),
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.white),
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(_error!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
                 ],
               )
             : !_isInitialized
@@ -1801,10 +1891,7 @@ class _MergedVideoPlayerScreenState extends State<_MergedVideoPlayerScreen> {
                     children: [
                       CircularProgressIndicator(color: Colors.white),
                       SizedBox(height: 16),
-                      Text(
-                        '加载视频中...',
-                        style: TextStyle(color: Colors.white),
-                      ),
+                      Text('加载视频中...', style: TextStyle(color: Colors.white)),
                     ],
                   )
                 : Chewie(controller: _chewieController!),
