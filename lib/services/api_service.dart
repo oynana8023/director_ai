@@ -4,111 +4,19 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+
+// ==================== 新增动态配置引用 ====================
+import 'llm_config_store.dart';
+// ========================================================
+
 import '../models/agent_command.dart';
 import '../models/character_sheet.dart';
 import '../utils/duration_parser.dart';
 import '../utils/app_logger.dart';
-import 'api_config_service.dart';
 
 /// 类型别名：简化 DurationParser 的引用
 typedef _DurationParser = DurationParser;
 typedef _SceneCountRange = SceneCountRange;
-
-/// API 配置
-class ApiConfig {
-  static const String zhipuBaseUrl = 'https://open.bigmodel.cn/api/paas/v4'; // 智谱 GLM
-  static const String tuziBaseUrl = 'https://api.ourzhishi.top'; // Tuzi API 基础URL (视频 & 图像)
-  static const String doubaoBaseUrl = 'https://ark.cn-beijing.volces.com/api/v3'; // 豆包 ARK API
-
-  // 各服务的 API Key（从 ApiConfigService 读取）
-  static String get zhipuApiKey => ApiConfigService.getZhipuApiKey();
-  static String get videoApiKey => ApiConfigService.getVideoApiKey();
-  static String get imageApiKey => ApiConfigService.getImageApiKey();
-  static String get doubaoApiKey => ApiConfigService.getDoubaoApiKey();
-
-  /// 创建智谱 API Dio 实例
-  static Dio createDio() {
-    final dio = Dio(BaseOptions(
-      baseUrl: zhipuBaseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 60),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    ));
-
-    // 添加拦截器，在每次请求时动态设置 Authorization header
-    dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        // 动态获取最新的 API Key
-        options.headers['Authorization'] = 'Bearer $zhipuApiKey';
-        return handler.next(options);
-      },
-    ));
-
-    // 添加日志拦截器用于调试
-    dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      requestHeader: true,
-      error: true,
-    ));
-
-    return dio;
-  }
-
-  // 豆包模型配置
-  // static const String doubaoImageModel = 'doubao-seed-1-8-251215'; // 支持图片的豆包模型
-  static const String doubaoImageModel = 'doubao-seed-1-8-preview-251115'; // 支持图片的豆包模型
-
-  // ==================== 功能开关 ====================
-  /// 生产环境请将此值设为 false
-  /// 注意：如果视频 Mock 为 false，Mock 图片 URL 必须是视频 API 可以访问的公开链接
-  static const bool USE_MOCK_VIDEO_API = false;  // 视频生成 Mock 开关
-  static const bool USE_MOCK_IMAGE_API = false;   // 图片生成 Mock 开关
-  static const bool USE_MOCK_CHARACTER_SHEET_API = false;   // 角色三视图生成 Mock 开关（测试用）
-
-  /// Thinking 模式开关
-  /// 启用后会显示 AI 的思考过程，提升用户体验
-  /// 演示时可开启，生产环境根据需求决定
-  static const bool USE_THINKING_MODE = true;  // 思考过程显示开关
-
-  // ==================== 场景配置 ====================
-  /// 场景数量配置
-  /// 控制大模型生成的场景数量，同时也是分镜图和分镜视频的数量
-  /// 例如：设置为 2，则生成 2 个场景、2 张分镜图、2 个分镜视频
-  static int sceneCount = 7;  // 默认 2 个场景
-
-  /// 并发生成场景数量配置
-  /// 控制同时生成多少个场景的图片和视频
-  /// 例如：设置为 3，则每 3 个场景为一组并行处理
-  /// 设置为 1 表示串行处理，设置为大数值表示全并行处理
-  static int concurrentScenes = 2;  // 默认每批 3 个场景并行
-
-  /// Mock 视频URL（用于测试）- 使用公开可访问的测试视频
-  static const String MOCK_VIDEO_URL =
-      'https://www.w3schools.com/html/mov_bbb.mp4';
-
-  /// Mock 图片URL（用于测试）
-  static const String MOCK_IMAGE_URL =
-      'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
-
-  /// Mock 角色三视图URL（用于测试）
-  /// 新版本：单张组合图（包含正面、侧面、背面三个视角）
-  static const String MOCK_CHARACTER_COMBINED_URL =
-      'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
-
-  /// 兼容旧版：单独的三视图URL（已废弃）
-  @Deprecated('使用 MOCK_CHARACTER_COMBINED_URL 替代')
-  static const String MOCK_CHARACTER_FRONT_URL =
-      'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
-  @Deprecated('使用 MOCK_CHARACTER_COMBINED_URL 替代')
-  static const String MOCK_CHARACTER_BACK_URL =
-      'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
-  @Deprecated('使用 MOCK_CHARACTER_COMBINED_URL 替代')
-  static const String MOCK_CHARACTER_SIDE_URL =
-      'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
-}
 
 /// GLM 系统提示词 - 剧本规划模式
 const String _glmSystemPrompt = '''
@@ -260,7 +168,6 @@ You are AI漫导 (DirectorAI), a friendly AI assistant specialized in video cont
 ''';
 
 /// GLM 系统提示词 - 漫剧剧本生成模式
-/// 用于生成1分钟以上的漫剧风格剧本，包含情绪钩子和反转剧情
 const String _dramaSystemPrompt = '''
 You are DirectorAI, a PROFESSIONAL SCREENPLAY WRITER for manga-style drama videos.
 
@@ -541,158 +448,81 @@ enum GLMStreamType {
 class GLMStreamChunk {
   final GLMStreamType type;
   final String text;
-  
+
   GLMStreamChunk({required this.type, required this.text});
-  
+
   bool get isThinking => type == GLMStreamType.thinking;
   bool get isContent => type == GLMStreamType.content;
 }
 
-/// 处理所有 API 调用的服务类
+// ==================== 动态配置的 ApiConfig ====================
+/// API 配置
+class ApiConfig {
+  // ==================== 功能开关 ====================
+  static const bool USE_MOCK_VIDEO_API = false;
+  static const bool USE_MOCK_IMAGE_API = false;
+  static const bool USE_MOCK_CHARACTER_SHEET_API = false;
+  static const bool USE_THINKING_MODE = true;
+
+  // ==================== 场景配置 ====================
+  static int sceneCount = 7;
+  static int concurrentScenes = 2;
+
+  // ==================== Mock URL ====================
+  static const String MOCK_VIDEO_URL = 'https://www.w3schools.com/html/mov_bbb.mp4';
+  static const String MOCK_IMAGE_URL = 'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
+  static const String MOCK_CHARACTER_COMBINED_URL = 'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
+
+  // ==================== 动态获取配置 ====================
+  /// 获取指定用途的 Dio 实例，如果未绑定则抛出异常
+  static Future<Dio> getRequiredDio(String usage) async {
+    final config = await LLMConfigStore().getActiveConfig(usage);
+    if (config == null || config.baseUrl.isEmpty) {
+      throw Exception('请先去设置页面绑定【$usage】模型');
+    }
+    return Dio(BaseOptions(
+      baseUrl: config.baseUrl,
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 120),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${config.apiKey}',
+      },
+    ));
+  }
+
+  /// 获取指定用途的模型名称，如果未选择则抛出异常
+  static Future<String> getRequiredModel(String usage) async {
+    final config = await LLMConfigStore().getActiveConfig(usage);
+    if (config == null || config.selectedModelId == null || config.selectedModelId!.isEmpty) {
+      throw Exception('请先去设置页面选择【$usage】模型');
+    }
+    return config.selectedModelId!;
+  }
+
+  // 兼容旧代码（标记为已弃用，防止原文件其他地方报错）
+  @Deprecated('使用 LLMConfigStore 替代')
+  static String get zhipuApiKey => '';
+  @Deprecated('使用 LLMConfigStore 替代')
+  static String get videoApiKey => '';
+  @Deprecated('使用 LLMConfigStore 替代')
+  static String get imageApiKey => '';
+  @Deprecated('使用 LLMConfigStore 替代')
+  static String get doubaoApiKey => '';
+}
+
+// ==================== 动态路由请求的 ApiService ====================
+/// 处理所有 API 调用的服务类（动态配置版）
 class ApiService {
-  late Dio _dio;        // 智谱 GLM-4.7
-  late Dio _tuziDio;    // Tuzi Sora 视频生成
-  late Dio _imageDio;   // Gemini 图像生成
-  late Dio _doubaoDio;  // 豆包 ARK API (图片理解)
 
-  ApiService() {
-    _dio = ApiConfig.createDio();
-    _tuziDio = _createTuziDio();
-    _imageDio = _createImageDio();
-    _doubaoDio = _createDoubaoDio();
-  }
+  // ==================== GLM 智能体 API（动态对话模型） ====================
 
-  /// 创建 Tuzi API 专用的 Dio 实例（视频生成）
-  Dio _createTuziDio() {
-    final dio = Dio(BaseOptions(
-      baseUrl: ApiConfig.tuziBaseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 60),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    ));
-
-    // 添加拦截器，在每次请求时动态设置 Authorization header
-    dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        options.headers['Authorization'] = 'Bearer ${ApiConfig.videoApiKey}';
-        return handler.next(options);
-      },
-    ));
-
-    // 添加日志拦截器
-    dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      requestHeader: true,
-      error: true,
-    ));
-
-    return dio;
-  }
-
-  /// 创建图像生成 API 专用的 Dio 实例
-  Dio _createImageDio() {
-    final dio = Dio(BaseOptions(
-      baseUrl: ApiConfig.tuziBaseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 60),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    ));
-
-    // 添加拦截器，在每次请求时动态设置 Authorization header
-    dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        options.headers['Authorization'] = 'Bearer ${ApiConfig.imageApiKey}';
-        return handler.next(options);
-      },
-    ));
-
-    // 添加日志拦截器
-    dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      requestHeader: true,
-      error: true,
-    ));
-
-    return dio;
-  }
-
-  /// 创建豆包 ARK API 专用的 Dio 实例（图片理解）
-  Dio _createDoubaoDio() {
-    final dio = Dio(BaseOptions(
-      baseUrl: ApiConfig.doubaoBaseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 60),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    ));
-
-    // 添加拦截器，在每次请求时动态设置 Authorization header
-    dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        options.headers['Authorization'] = 'Bearer ${ApiConfig.doubaoApiKey}';
-        return handler.next(options);
-      },
-    ));
-
-    // 添加日志拦截器
-    dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      requestHeader: true,
-      error: true,
-    ));
-
-    return dio;
-  }
-
-  /// 动态更新所有 API keys（已弃用，请使用 ApiConfigService）
-  @Deprecated('使用 ApiConfigService.setXxxApiKey() 方法替代')
-  Future<void> updateTokens({
-    String? zhipuKey,
-    String? videoKey,
-    String? imageKey,
-    String? doubaoKey,
-  }) async {
-    if (zhipuKey != null) {
-      await ApiConfigService.setZhipuApiKey(zhipuKey);
-      _dio = ApiConfig.createDio();
-    }
-    if (videoKey != null) {
-      await ApiConfigService.setVideoApiKey(videoKey);
-      _tuziDio = _createTuziDio();
-    }
-    if (imageKey != null) {
-      await ApiConfigService.setImageApiKey(imageKey);
-      _imageDio = _createImageDio();
-    }
-    if (doubaoKey != null) {
-      await ApiConfigService.setDoubaoApiKey(doubaoKey);
-      _doubaoDio = _createDoubaoDio();
-    }
-  }
-
-  // ==================== GLM-4.7 智能体 API ====================
-
-  /// 普通聊天方法 - 使用聊天模式的系统提示词
-  /// 返回流式响应，包含思考过程和最终内容
+  /// 普通聊天方法
   Stream<GLMStreamChunk> chatWithGLM(List<Map<String, String>> conversationHistory) async* {
     yield* sendToGLMStream(conversationHistory, systemPrompt: _glmChatPrompt);
   }
 
   /// 支持图片识别的聊天方法
-  /// 有图片时使用豆包 ARK API，无图片时使用 GLM-4.7
-  /// [userMessage] 用户当前的文本消息
-  /// [imageBase64] 用户上传的图片（base64 格式，纯 base64 不带前缀）
-  /// [imageMimeType] 图片的 MIME 类型（如 image/jpeg, image/png），需与实际图片格式一致
-  /// [conversationHistory] 之前的对话历史（纯文本，仅用于无图片模式）
-  /// 返回流式响应，包含最终内容
   Stream<GLMStreamChunk> chatWithGLMImageSupport({
     required String userMessage,
     String? imageBase64,
@@ -703,101 +533,58 @@ class ApiService {
       final hasImage = imageBase64 != null && imageBase64.isNotEmpty;
 
       if (hasImage) {
-        // === 图片模式：使用豆包 ARK API ===
-        if (ApiConfig.doubaoApiKey.isEmpty) {
-          throw Exception('豆包 API Key 未设置，请在设置中配置');
-        }
-
-        // 豆包 ARK API 使用 OpenAI 兼容格式
-        // type 为 "image_url"
-        // image_url.url 为 "data:image/xxx;base64,{base64}"
+        // === 图片模式：使用 "vision" 绑定的模型 ===
+        final dio = await ApiConfig.getRequiredDio('vision');
+        final model = await ApiConfig.getRequiredModel('vision');
         final mimeType = imageMimeType ?? 'image/jpeg';
+
         final requestData = {
-          'model': ApiConfig.doubaoImageModel,
+          'model': model,
           'messages': [
             {
               'role': 'user',
               'content': [
-                {
-                  'type': 'image_url',
-                  'image_url': {
-                    'url': 'data:$mimeType;base64,$imageBase64',
-                  },
-                },
-                {
-                  'type': 'text',
-                  'text': userMessage,
-                },
+                {'type': 'image_url', 'image_url': {'url': 'data:$mimeType;base64,$imageBase64'}},
+                {'type': 'text', 'text': userMessage},
               ],
             },
           ],
         };
 
-        AppLogger.apiRequestRaw('POST', '/chat/completions (豆包图片识别)', requestData);
-        AppLogger.info('豆包-ARK', '使用豆包 API 进行图片识别');
-
-        // 豆包 API 调用（非流式）
-        final response = await _doubaoDio.post(
-          '/chat/completions',
-          data: requestData,
-        );
-
-        AppLogger.apiResponseRaw('/chat/completions (豆包图片识别)', response.data);
-
-        // 解析豆包响应（OpenAI 格式）
-        final choices = response.data['choices'] as List?;
-        if (choices == null || choices.isEmpty) {
-          throw Exception('豆包 API 响应格式错误：没有 choices');
-        }
-
-        final firstChoice = choices[0] as Map<String, dynamic>?;
-        final message = firstChoice?['message'] as Map<String, dynamic>?;
-        final content = message?['content'] as String?;
+        AppLogger.info('动态视觉模型', '使用模型: $model');
+        final response = await dio.post('/chat/completions', data: requestData);
+        final content = response.data['choices']?[0]?['message']?['content'] as String?;
 
         if (content != null && content.isNotEmpty) {
           yield GLMStreamChunk(type: GLMStreamType.content, text: content);
         } else {
-          throw Exception('豆包 API 响应格式错误：content 为空');
+          throw Exception('响应格式错误：content 为空');
         }
-
-        AppLogger.success('豆包-ARK', '图片识别完成');
       } else {
-        // === 纯文本模式：使用 GLM-4.7 ===
-        // 添加 system prompt
+        // === 纯文本模式：使用 "chat" 绑定的模型 ===
+        final dio = await ApiConfig.getRequiredDio('chat');
+        final model = await ApiConfig.getRequiredModel('chat');
+
         final messages = <Map<String, dynamic>>[
           {'role': 'system', 'content': _glmChatPrompt},
+          ...conversationHistory,
+          {'role': 'user', 'content': userMessage},
         ];
 
-        // 添加历史对话
-        for (final msg in conversationHistory) {
-          messages.add({
-            'role': msg['role'],
-            'content': msg['content'],
-          });
-        }
-
-        // 添加当前消息
-        messages.add({'role': 'user', 'content': userMessage});
-
         final requestData = <String, dynamic>{
-          'model': 'glm-4.7',
+          'model': model,
           'messages': messages,
           'stream': true,
           'max_tokens': 65536,
           'temperature': 1.0,
         };
 
-        // 启用 thinking 模式
         if (ApiConfig.USE_THINKING_MODE) {
           requestData['thinking'] = {'type': 'enabled'};
         }
 
-        final modeDesc = ApiConfig.USE_THINKING_MODE ? '流式+thinking' : '流式';
-        AppLogger.api('POST', '/chat/completions ($modeDesc)', {'model': 'glm-4.7'});
-        AppLogger.info('GLM-Chat', '使用模型: glm-4.7 (纯文本)');
-
-        // 使用 ResponseType.stream 实现真正的流式处理
-        final response = await _dio.post<ResponseBody>(
+        AppLogger.info('动态对话模型', '使用模型: $model');
+        final response = await dio.post<ResponseBody>(
           '/chat/completions',
           data: requestData,
           options: Options(responseType: ResponseType.stream),
@@ -815,16 +602,11 @@ class ApiService {
 
           for (final line in lines) {
             if (line.trim().isEmpty) continue;
-
             if (line.startsWith('data: ')) {
               final data = line.substring(6);
-              if (data.trim() == '[DONE]') {
-                AppLogger.success('GLM-Chat', '流式响应完成');
-                return;
-              }
+              if (data.trim() == '[DONE]') return;
               try {
                 final json = jsonDecode(data);
-
                 final delta = json['choices']?[0]?['delta'];
                 if (delta == null) continue;
 
@@ -835,18 +617,14 @@ class ApiService {
                   thinkingBuffer.write(reasoningContent);
                   yield GLMStreamChunk(type: GLMStreamType.thinking, text: reasoningContent);
                 }
-
                 if (content != null && content.isNotEmpty) {
                   contentBuffer.write(content);
                   yield GLMStreamChunk(type: GLMStreamType.content, text: content);
                 }
-              } catch (e) {
-                // 忽略解析错误
-              }
+              } catch (_) {}
             }
           }
         }
-
         if (contentBuffer.isEmpty && thinkingBuffer.isEmpty) {
           yield GLMStreamChunk(type: GLMStreamType.content, text: '');
         }
@@ -857,59 +635,42 @@ class ApiService {
     }
   }
 
-  /// 发送对话历史到 GLM-4.7 并获取下一步操作（非流式）
-  /// 系统提示词指示 GLM 作为状态机编排器工作
+  /// 非流式对话（剧本生成等）
   Future<String> sendToGLM(List<Map<String, String>> conversationHistory) async {
     try {
+      final dio = await ApiConfig.getRequiredDio('chat');
+      final model = await ApiConfig.getRequiredModel('chat');
+
       final messages = [
         {'role': 'system', 'content': _glmSystemPrompt},
         ...conversationHistory,
       ];
 
       final requestData = {
-        'model': 'glm-4.7',
+        'model': model,
         'messages': messages,
         'stream': false,
         'max_tokens': 65536,
         'temperature': 1.0,
       };
 
-      AppLogger.api('POST', '/chat/completions', requestData);
-
-      final response = await _dio.post(
-        '/chat/completions',
-        data: requestData,
-      );
-
-      AppLogger.apiResponse('/chat/completions', response.data);
-
+      final response = await dio.post('/chat/completions', data: requestData);
       final content = response.data['choices']?[0]?['message']?['content'] as String?;
-      if (content == null) {
-        AppLogger.error('GLM', '响应中没有内容', null, StackTrace.current);
-        throw Exception('GLM 响应中没有内容');
-      }
-
-      AppLogger.success('GLM', '成功获取响应，内容长度: ${content.length}');
+      if (content == null) throw Exception('响应中没有内容');
       return content;
     } catch (e) {
-      AppLogger.error('GLM', 'API 调用失败', e, StackTrace.current);
-      throw Exception('GLM API 错误: $e');
+      throw Exception('API 错误: $e');
     }
   }
 
-  /// 发送对话历史到 GLM-4.7 并获取流式响应
-  /// 使用真正的流式处理，边接收边返回数据
-  /// 启用 thinking 模式，返回思考过程和最终内容
-  /// [systemPrompt] 可选的自定义系统提示词，默认使用剧本规划模式
-  /// [conversationHistory] 对话历史（纯文本格式）
-  ///
-  /// 注意：图片分析由单独的 analyzeImageForCharacter 方法处理
+  /// 流式对话（带思考过程）
   Stream<GLMStreamChunk> sendToGLMStream(
     List<Map<String, dynamic>> conversationHistory, {
     String? systemPrompt,
   }) async* {
     try {
-      // 使用传入的系统提示词，或默认使用剧本规划提示词
+      final dio = await ApiConfig.getRequiredDio('chat');
+      final model = await ApiConfig.getRequiredModel('chat');
       final prompt = systemPrompt ?? _glmSystemPrompt;
 
       final messages = [
@@ -918,108 +679,46 @@ class ApiService {
       ];
 
       final requestData = <String, dynamic>{
-        'model': 'glm-4.7',  // 使用文本模型生成剧本
+        'model': model,
         'messages': messages,
         'stream': true,
         'max_tokens': 65536,
         'temperature': 1.0,
       };
 
-      // 根据开关决定是否启用 thinking 模式
       if (ApiConfig.USE_THINKING_MODE) {
-        requestData['thinking'] = {
-          'type': 'enabled',
-        };
+        requestData['thinking'] = {'type': 'enabled'};
       }
 
-      final modeDesc = ApiConfig.USE_THINKING_MODE ? '流式+thinking' : '流式';
-      AppLogger.apiRequestRaw('POST', '/chat/completions ($modeDesc)', requestData);
-
-      // 使用 ResponseType.stream 实现真正的流式处理
-      final response = await _dio.post<ResponseBody>(
+      final response = await dio.post<ResponseBody>(
         '/chat/completions',
         data: requestData,
         options: Options(responseType: ResponseType.stream),
       );
 
-      AppLogger.info('GLM', '开始接收流式响应 (thinking=${ApiConfig.USE_THINKING_MODE})');
-
       final contentBuffer = StringBuffer();
       final thinkingBuffer = StringBuffer();
-      int chunkCount = 0;
-      String incompleteLine = ''; // 处理跨 chunk 的不完整行
+      String incompleteLine = '';
 
-      // 真正的流式处理：边接收边解析
       await for (final chunk in response.data!.stream) {
-        // 将字节转换为字符串
         final chunkStr = utf8.decode(chunk, allowMalformed: true);
-        
-        // 将不完整的行与新数据拼接
         final fullData = incompleteLine + chunkStr;
         final lines = fullData.split('\n');
-        
-        // 最后一行可能不完整，保存到下次处理
         incompleteLine = lines.removeLast();
 
         for (final line in lines) {
           if (line.trim().isEmpty) continue;
-
           if (line.startsWith('data: ')) {
             final data = line.substring(6);
-            if (data.trim() == '[DONE]') {
-              AppLogger.success('GLM', '流式响应完成，thinking长度: ${thinkingBuffer.length}, content长度: ${contentBuffer.length}, 接收到 $chunkCount 个有效chunk');
-              return;
-            }
+            if (data.trim() == '[DONE]') return;
             try {
               final json = jsonDecode(data);
-              chunkCount++;
-
               final delta = json['choices']?[0]?['delta'];
               if (delta == null) continue;
 
-              // 优先检查 reasoning_content（思考过程）
-              final reasoningContent = delta['reasoning_content'] as String?;
-              // 然后检查 content（最终内容）
-              final content = delta['content'] as String?;
-
-              // 打印前几个 chunk 的完整 JSON 用于调试
-              if (chunkCount <= 5) {
-                final jsonStr = jsonEncode(json);
-                AppLogger.info('GLM', 'Chunk #$chunkCount JSON: ${jsonStr.substring(0, jsonStr.length > 300 ? 300 : jsonStr.length)}...');
-                AppLogger.info('GLM', '  -> reasoning_content: "$reasoningContent", content: "$content"');
-              }
-
-              // 返回思考过程
-              if (reasoningContent != null && reasoningContent.isNotEmpty) {
-                thinkingBuffer.write(reasoningContent);
-                AppLogger.streamChunk('GLM-Thinking', reasoningContent);
-                yield GLMStreamChunk(type: GLMStreamType.thinking, text: reasoningContent);
-              }
-
-              // 返回最终内容
-              if (content != null && content.isNotEmpty) {
-                contentBuffer.write(content);
-                AppLogger.streamChunk('GLM-Content', content);
-                yield GLMStreamChunk(type: GLMStreamType.content, text: content);
-              }
-            } catch (e) {
-              AppLogger.warn('GLM', '解析流式数据失败: $line, 错误: $e');
-              continue;
-            }
-          }
-        }
-      }
-
-      // 处理最后可能残留的不完整行
-      if (incompleteLine.trim().isNotEmpty && incompleteLine.startsWith('data: ')) {
-        final data = incompleteLine.substring(6);
-        if (data.trim() != '[DONE]') {
-          try {
-            final json = jsonDecode(data);
-            final delta = json['choices']?[0]?['delta'];
-            if (delta != null) {
               final reasoningContent = delta['reasoning_content'] as String?;
               final content = delta['content'] as String?;
+
               if (reasoningContent != null && reasoningContent.isNotEmpty) {
                 thinkingBuffer.write(reasoningContent);
                 yield GLMStreamChunk(type: GLMStreamType.thinking, text: reasoningContent);
@@ -1028,1185 +727,348 @@ class ApiService {
                 contentBuffer.write(content);
                 yield GLMStreamChunk(type: GLMStreamType.content, text: content);
               }
-            }
-          } catch (_) {
-            // 忽略最后的不完整数据
+            } catch (_) {}
           }
         }
       }
-
-      // 如果流为空，返回空字符串避免错误
       if (contentBuffer.isEmpty && thinkingBuffer.isEmpty) {
-        AppLogger.warn('GLM', '流式响应为空，共处理 $chunkCount 个chunk');
         yield GLMStreamChunk(type: GLMStreamType.content, text: '');
       }
     } catch (e) {
-      AppLogger.error('GLM', '流式 API 调用失败', e, StackTrace.current);
-      throw Exception('GLM API 流式错误: $e');
+      throw Exception('API 流式错误: $e');
     }
   }
 
-  /// 生成漫剧风格的剧本草稿
-  /// 使用 ApiConfig.sceneCount 配置的场景数量
+  // ==================== 漫剧剧本生成（动态对话模型） ====================
   Future<String> generateDramaScreenplay(
     String userPrompt, {
     String? characterAnalysis,
     String? previousFeedback,
   }) async {
-    const maxRetries = 3; // 最大重试次数
-
+    const maxRetries = 3;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // 使用配置的场景数量
         final configuredSceneCount = ApiConfig.sceneCount;
-
-        if (attempt > 1) {
-          AppLogger.info('漫剧剧本生成', '第 $attempt 次尝试生成剧本...');
-        } else {
-          AppLogger.info('漫剧剧本生成', '配置的场景数量: $configuredSceneCount');
-        }
-
-        // 构建增强的提示词
         String enhancedPrompt = userPrompt;
 
         if (characterAnalysis != null && characterAnalysis.isNotEmpty) {
-          enhancedPrompt = '''
-用户需求：$enhancedPrompt
-
-用户提供的参考图片角色特征分析：
-$characterAnalysis
-
-请根据上述角色特征分析结果，生成剧本中的 character_description 字段，
-确保生成的角色形象与用户提供的图片一致。
-''';
+          enhancedPrompt = '用户需求：$enhancedPrompt\n\n用户提供的参考图片角色特征分析：\n$characterAnalysis\n\n请根据上述角色特征分析结果，生成剧本中的 character_description 字段，确保生成的角色形象与用户提供的图片一致。';
         }
-
-        // 如果是重试，添加错误提示
-        if (attempt > 1) {
-          enhancedPrompt = '''
-$enhancedPrompt
-
-重要提醒：上次生成的 JSON 格式有误，请确保：
-1. 输出纯 JSON 格式，不要用 markdown 代码块包裹
-2. 使用标准英文双引号 " " 而不是中文引号 ""
-3. 所有字符串必须用引号包裹
-4. 确保所有括号、大括号正确配对
-''';
-        }
-
         if (previousFeedback != null && previousFeedback.isNotEmpty) {
-          enhancedPrompt = '''
-$enhancedPrompt
-
-用户对上一版剧本的反馈：
-$previousFeedback
-
-请根据用户反馈调整剧本，生成更好的版本。
-''';
+          enhancedPrompt = '$enhancedPrompt\n\n用户对上一版剧本的反馈：\n$previousFeedback\n\n请根据用户反馈调整剧本，生成更好的版本。';
+        }
+        if (attempt > 1) {
+          enhancedPrompt = '$enhancedPrompt\n\n重要提醒：上次生成的 JSON 格式有误，请确保：1. 输出纯 JSON 格式。2. 使用标准英文双引号。3. 所有字符串必须用引号包裹。4. 确保括号正确配对。';
         }
 
-        AppLogger.info('漫剧剧本生成', '开始生成剧本草稿...');
-
-        // 使用配置的场景数量构建提示词
         final dynamicSystemPrompt = _buildDynamicDramaPromptWithCount(configuredSceneCount);
-
         final contentBuffer = StringBuffer();
 
         await for (final chunk in sendToGLMStream(
           [{'role': 'user', 'content': enhancedPrompt}],
           systemPrompt: dynamicSystemPrompt,
         )) {
-          if (chunk.isContent) {
-            contentBuffer.write(chunk.text);
-          }
+          if (chunk.isContent) contentBuffer.write(chunk.text);
         }
 
-        String responseJson = contentBuffer.toString();
+        String responseJson = contentBuffer.toString()
+            .replaceAll('“', '"').replaceAll('”', '"')
+            .replaceAll('‘', '\'').replaceAll('’', '\'')
+            .replaceAll('：', ':')
+            .replaceAll(RegExp(r'```json\s*'), '').replaceAll(RegExp(r'```\s*'), '').trim();
 
-        // 清理中文引号和其他可能导致 JSON 解析失败的字符
-        responseJson = responseJson
-            .replaceAll('"', '"')      // 中文左双引号
-            .replaceAll('"', '"')      // 中文右双引号
-            .replaceAll(''', '\'')     // 中文左单引号
-            .replaceAll(''', '\'')     // 中文右单引号
-            .replaceAll('：', ':')     // 中文冒号
-            .replaceAll(RegExp(r'```json\s*'), '')   // 移除 markdown json 代码块标记
-            .replaceAll(RegExp(r'```\s*'), '')       // 移除 markdown 代码块结束标记
-            .trim();
-
-        // 验证返回的是有效 JSON
         try {
           final decoded = jsonDecode(responseJson);
-
-          // 验证必需字段
-          if (!decoded.containsKey('task_id') ||
-              !decoded.containsKey('title') ||
-              !decoded.containsKey('scenes')) {
+          if (!decoded.containsKey('task_id') || !decoded.containsKey('title') || !decoded.containsKey('scenes')) {
             throw FormatException('缺少必需字段');
           }
-
           final scenes = decoded['scenes'] as List?;
-          if (scenes == null || scenes.isEmpty) {
-            throw FormatException('场景数量不足');
-          }
-
-          // 验证场景数量（允许±1的误差）
-          if (scenes.length < configuredSceneCount - 1 || scenes.length > configuredSceneCount + 1) {
-            AppLogger.warn('漫剧剧本生成',
-                '场景数量与配置不符（期望$configuredSceneCount个，实际${scenes.length}个），但继续使用');
-          }
-
-          AppLogger.success('漫剧剧本生成', '成功生成 ${scenes.length} 个场景的剧本');
-          AppLogger.apiResponse('/drama-screenplay', decoded);
-
+          if (scenes == null || scenes.isEmpty) throw FormatException('场景数量不足');
           return responseJson;
         } on FormatException catch (e) {
-          if (attempt == maxRetries) {
-            AppLogger.error('漫剧剧本生成', 'JSON 格式验证失败（已重试$maxRetries次）: $e\n响应内容: $responseJson');
-            rethrow;
-          }
-          AppLogger.warn('漫剧剧本生成', 'JSON 格式验证失败，准备重试... ($attempt/$maxRetries)');
-          // 继续下一次尝试
+          if (attempt == maxRetries) throw Exception('JSON 格式验证失败: $e\n响应内容: $responseJson');
           continue;
         }
       } catch (e) {
-        if (attempt == maxRetries) {
-          AppLogger.error('漫剧剧本生成', '生成失败（已重试$maxRetries次）', e);
-          throw Exception('漫剧剧本生成失败: $e');
-        }
-        AppLogger.warn('漫剧剧本生成', '生成过程出错，准备重试... ($attempt/$maxRetries): $e');
-        // 继续下一次尝试
+        if (attempt == maxRetries) throw Exception('漫剧剧本生成失败: $e');
         continue;
       }
     }
-
-    // 理论上不会到达这里
     throw Exception('漫剧剧本生成失败：超过最大重试次数');
   }
-  /// 根据配置的场景数量构建漫剧提示词
+
   String _buildDynamicDramaPromptWithCount(int sceneCount) {
-    // 替换原有的固定场景数量
     String prompt = _dramaSystemPrompt.replaceAll(
       RegExp(r'1\. LENGTH: 6-8 scenes \(approximately 60-90 seconds total\)'),
       '1. LENGTH: EXACTLY $sceneCount SCENES (each scene 5-10 seconds)',
     );
-
-    // 替换规则中的场景数量
-    prompt = prompt.replaceAll(
-      RegExp(r'1\. 6-8 scenes exactly'),
-      '1. EXACTLY $sceneCount scenes',
-    );
-
-    // 在 ABSOLUTE RULES 部分添加强调
-    prompt = prompt.replaceAll(
-      'ABSOLUTE RULES:',
-      '''ABSOLUTE RULES:
-0. CRITICAL: You MUST generate EXACTLY $sceneCount scenes. No more, no less.''',
-    );
-
+    prompt = prompt.replaceAll(RegExp(r'1\. 6-8 scenes exactly'), '1. EXACTLY $sceneCount scenes');
+    prompt = prompt.replaceAll('ABSOLUTE RULES:', 'ABSOLUTE RULES:\n0. CRITICAL: You MUST generate EXACTLY $sceneCount scenes. No more, no less.');
     return prompt;
   }
 
-  /// 兼容旧版：根据场景数量范围动态构建漫剧提示词
-  @Deprecated('使用 _buildDynamicDramaPromptWithCount 替代')
-  String _buildDynamicDramaPrompt(_SceneCountRange range) {
-    // 替换原有的固定场景数量
-    final basePrompt = _dramaSystemPrompt.replaceAll(
-      RegExp(r'1\. LENGTH: 6-8 scenes \(approximately 60-90 seconds total\)'),
-      '1. LENGTH: ${range.min}-${range.max} SCENES (each scene 10-12 seconds)',
-    );
-
-    // 替换示例中的场景数量说明
-    return basePrompt.replaceAll(
-      RegExp(r'3\. ALWAYS include exactly 3 scenes'),
-      '3. ALWAYS include exactly ${range.min}-${range.max} scenes',
-    );
-  }
-
-  /// 使用豆包 ARK API 分析图片，提取角色/人物特征描述
-  /// [imageBase64] 图片的 base64 编码（纯 base64，不带前缀）
-  /// 返回详细的特征描述文本，用于后续剧本生成
-  Future<String> analyzeImageForCharacter(
-    String imageBase64, {
-    String mimeType = 'image/jpeg',
-  }) async {
+  // ==================== 图像分析（动态 vision 模型） ====================
+  Future<String> analyzeImageForCharacter(String imageBase64, {String mimeType = 'image/jpeg'}) async {
     try {
-      if (ApiConfig.doubaoApiKey.isEmpty) {
-        throw Exception('豆包 API Key 未设置，无法进行图片分析');
-      }
+      final dio = await ApiConfig.getRequiredDio('vision');
+      final model = await ApiConfig.getRequiredModel('vision');
 
-      const prompt = '''请仔细观察这张图片，提取其中主要角色或人物的详细特征描述。
+      const prompt = '请仔细观察这张图片，提取其中主要角色或人物的详细特征描述。\n\n请按照以下格式返回（只返回描述，不要其他内容）：\n\n**外观特征**：[详细描述角色外观]\n**穿着打扮**：[描述服装风格]\n**姿态表情**：[描述姿态表情]\n**整体风格**：[一句话总结]';
 
-请按照以下格式返回（只返回描述，不要其他内容）：
-
-**外观特征**：[详细描述角色的外观，包括：发型、发色、面部特征、眼睛颜色、皮肤状态、体型等]
-
-**穿着打扮**：[描述角色的服装风格、颜色、配饰等]
-
-**姿态表情**：[描述角色的姿态、表情、气质等]
-
-**整体风格**：[一句话总结这个角色的整体视觉风格]
-
-请确保描述足够详细，以便后续可以根据这些描述生成一致的角色形象。''';
-
-      // 豆包 ARK API 使用 OpenAI 兼容格式
-      // type 为 "image_url"
-      // image_url.url 为 "data:image/xxx;base64,{base64}"
       final requestData = {
-        'model': ApiConfig.doubaoImageModel,
+        'model': model,
         'messages': [
           {
             'role': 'user',
             'content': [
-              {
-                'type': 'image_url',
-                'image_url': {
-                  'url': 'data:$mimeType;base64,$imageBase64',
-                },
-              },
-              {
-                'type': 'text',
-                'text': prompt,
-              },
+              {'type': 'image_url', 'image_url': {'url': 'data:$mimeType;base64,$imageBase64'}},
+              {'type': 'text', 'text': prompt},
             ],
           },
         ],
       };
 
-      AppLogger.apiRequestRaw('POST', '/chat/completions (豆包图片分析)', requestData);
-      AppLogger.info('豆包-ARK', '开始分析图片特征...');
-
-      final response = await _doubaoDio.post(
-        '/chat/completions',
-        data: requestData,
-      );
-
-      AppLogger.apiResponseRaw('/chat/completions (豆包图片分析)', response.data);
-
-      // 解析豆包响应（OpenAI 格式）
-      final choices = response.data['choices'] as List?;
-      if (choices == null || choices.isEmpty) {
-        AppLogger.error('豆包-ARK', '响应格式错误：没有 choices', null, StackTrace.current);
-        throw Exception('图片分析失败：响应格式错误');
-      }
-
-      final firstChoice = choices[0] as Map<String, dynamic>?;
-      final message = firstChoice?['message'] as Map<String, dynamic>?;
-      final content = message?['content'] as String?;
-
-      if (content == null || content.isEmpty) {
-        AppLogger.error('豆包-ARK', '图片分析响应为空', null, StackTrace.current);
-        throw Exception('图片分析失败：响应为空');
-      }
-
-      AppLogger.success('豆包-ARK', '图片分析完成');
-      AppLogger.info('豆包-ARK', '提取的特征:\n$content');
+      final response = await dio.post('/chat/completions', data: requestData);
+      final content = response.data['choices']?[0]?['message']?['content'] as String?;
+      if (content == null || content.isEmpty) throw Exception('图片分析失败：响应为空');
       return content;
     } catch (e) {
-      AppLogger.error('豆包-ARK', '图片分析失败', e, StackTrace.current);
       throw Exception('图片分析失败: $e');
     }
   }
 
-  // ==================== 文本生成图片 API (Gemini) ====================
-
-  /// 使用图片生成 API 生成图片
-  /// 支持文生图和图生图（传入参考图）
-  /// [prompt] 图像描述文本
-  /// [referenceImages] 参考图片列表（base64 格式，支持多图），用于图生图
-  /// 返回生成的图片 URL
-  Future<String> generateImage(
-    String prompt, {
-    List<String>? referenceImages,
-  }) async {
-    // ========================================
-    // Mock 模式：直接返回模拟结果
-    // ========================================
-    if (ApiConfig.USE_MOCK_IMAGE_API) {
-      AppLogger.warn('图片生成', '🧪 使用 Mock 模式，不调用真实 API');
-      AppLogger.info('图片生成[MOCK]', 'Prompt: $prompt');
-      if (referenceImages != null && referenceImages.isNotEmpty) {
-        AppLogger.info('图片生成[MOCK]', '参考图数量: ${referenceImages.length}');
-      }
-      // 模拟网络延迟
-      await Future.delayed(const Duration(milliseconds: 500));
-      AppLogger.success('图片生成[MOCK]', '返回 Mock 图片: ${ApiConfig.MOCK_IMAGE_URL}');
-      return ApiConfig.MOCK_IMAGE_URL;
-    }
-
-    // ========================================
-    // 真实 API 调用模式
-    // ========================================
+  // ==================== 图像生成（动态 image 模型） ====================
+  Future<String> generateImage(String prompt, {List<String>? referenceImages}) async {
+    if (ApiConfig.USE_MOCK_IMAGE_API) return ApiConfig.MOCK_IMAGE_URL;
     return _generateImageWithRetry(prompt, referenceImages: referenceImages);
   }
 
-  /// 带重试机制的图片生成（处理内容安全检查错误）
-  Future<String> _generateImageWithRetry(
-    String prompt, {
-    List<String>? referenceImages,
-    int retryCount = 0,
-  }) async {
+  Future<String> _generateImageWithRetry(String prompt, {List<String>? referenceImages, int retryCount = 0}) async {
     try {
+      final dio = await ApiConfig.getRequiredDio('image');
+      final model = await ApiConfig.getRequiredModel('image');
+
       final requestData = {
-        'model': 'gemini-2.5-flash-image-vip',
-        // 'model': 'gemini-3-pro-image-preview',
+        'model': model,
         'prompt': prompt,
         'n': 1,
         'response_format': 'url',
         'size': '1024x1024',
       };
-
-      // 如果有参考图，添加到请求中（图生图）
       if (referenceImages != null && referenceImages.isNotEmpty) {
-        // API 支持数组格式：["base64xxx", "base64yyy"]
-        // 或 URL 格式：["https://xxx", "https://yyy"]
         requestData['image'] = referenceImages;
-        AppLogger.info('图片生成', '图生图模式，参考图数量: ${referenceImages.length}');
       }
 
-      AppLogger.apiRequestRaw('POST', '/v1/images/generations', requestData);
-      AppLogger.info('图片生成', '开始生成图片: $prompt');
-
-      final response = await _imageDio.post(
-        '/v1/images/generations',
-        data: requestData,
-        options: Options(sendTimeout: const Duration(seconds: 500), receiveTimeout: const Duration(seconds: 500)),
-      );
-
-      AppLogger.apiResponseRaw('/v1/images/generations', response.data);
-
-      // 从响应中解析图片 URL: response.data['data'][0]['url']
+      final response = await dio.post('/v1/images/generations', data: requestData);
       final dataList = response.data['data'] as List?;
-      if (dataList == null || dataList.isEmpty) {
-        AppLogger.error('图片生成', '响应中没有 data 数组', null, StackTrace.current);
-        throw Exception('图片生成响应中没有 data 数组');
-      }
-
-      final firstImage = dataList[0] as Map<String, dynamic>?;
-      if (firstImage == null) {
-        AppLogger.error('图片生成', 'data[0] 为空', null, StackTrace.current);
-        throw Exception('图片生成响应 data[0] 为空');
-      }
-
-      final imageUrl = firstImage['url'] as String?;
-      if (imageUrl == null || imageUrl.isEmpty) {
-        AppLogger.error('图片生成', '图片 URL 为空', null, StackTrace.current);
-        throw Exception('图片生成响应中 URL 为空');
-      }
-
-      AppLogger.success('图片生成', '成功生成图片: $imageUrl');
+      if (dataList == null || dataList.isEmpty) throw Exception('响应中没有 data 数组');
+      final imageUrl = dataList[0]['url'] as String?;
+      if (imageUrl == null || imageUrl.isEmpty) throw Exception('响应中 URL 为空');
       return imageUrl;
     } catch (e) {
-      AppLogger.error('图片生成', '生成图片失败', e, StackTrace.current);
-
-      // 检查是否是内容安全检查错误
-      if (e is DioException) {
-        final errorData = e.response?.data;
-        if (errorData is Map) {
-          final message = errorData['message']?.toString() ?? '';
-          if (message.contains('PUBLIC_ERROR_UNSAFE_GENERATION') ||
-              message.contains('generation_failed')) {
-            // 如果还没重试过，则清理提示词后重试
-            if (retryCount == 0) {
-              AppLogger.warn('图片生成', '触发内容安全检查，正在调整提示词并重试...');
-              final sanitizedPrompt = _sanitizePrompt(prompt);
-              return _generateImageWithRetry(
-                sanitizedPrompt,
-                referenceImages: referenceImages,
-                retryCount: retryCount + 1,
-              );
-            } else {
-              AppLogger.error('图片生成', '调整后仍无法通过安全检查，放弃重试', null, StackTrace.current);
-            }
-          }
+      if (e is DioException && e.response?.data is Map) {
+        final message = e.response?.data['message']?.toString() ?? '';
+        if ((message.contains('PUBLIC_ERROR_UNSAFE_GENERATION') || message.contains('generation_failed')) && retryCount == 0) {
+          return _generateImageWithRetry(_sanitizePrompt(prompt), referenceImages: referenceImages, retryCount: 1);
         }
       }
-
       throw Exception('图片生成错误: $e');
     }
   }
 
-  /// 清理提示词，移除可能触发内容安全检查的内容
   String _sanitizePrompt(String prompt) {
-    // 移除或替换可能导致安全检查失败的敏感词汇
-    final sanitized = prompt
-        // 移除过于暴露的描述
+    return prompt
         .replaceAll(RegExp(r'\b(sexy|nude|naked|breast|underwear|lingerie|intimate|suggestive)\b', caseSensitive: false), 'beautiful')
-        // 移除暴力相关词汇
         .replaceAll(RegExp(r'\b(violence|blood|kill|death|weapon|gore)\b', caseSensitive: false), 'dramatic')
-        // 移除其他可能的敏感词
         .replaceAll(RegExp(r'\b(disturbing|shocking|offensive)\b', caseSensitive: false), 'artistic')
-        // 简化过于复杂的描述
         .replaceAll(RegExp(r'\b(highly detailed|extreme|intense|realistic skin|anatomically correct)\b', caseSensitive: false), 'detailed')
-        // 保留核心内容，添加安全的艺术描述
-        .trim();
-
-    final result = sanitized.isEmpty
-        ? 'Beautiful artistic scene, professional photography, high quality, cinematic lighting'
-        : '$sanitized, professional photography, high quality, cinematic lighting';
-
-    AppLogger.info('提示词清理', '原提示词: $prompt');
-    AppLogger.info('提示词清理', '清理后: $result');
-
-    return result;
+        .trim() + ', professional photography, high quality, cinematic lighting';
   }
 
-  /// 清理视频提示词，移除可能触发 reCAPTCHA/内容安全检查的敏感元素
-  /// 视频生成对提示词更敏感，需要更积极的处理
   String _sanitizeVideoPrompt(String prompt) {
-    AppLogger.info('视频提示词清理', '原始提示词: $prompt');
-
-    // 移除或替换可能导致视频生成失败的敏感词汇
     String sanitized = prompt;
-
-    // 移除暴力/危险相关元素（这些会触发 reCAPTCHA）
-    final violentPatterns = [
-      r'lightning\s+effects?', // 闪电效果
-      r'glowing\s+(eyes|hands|body)', // 发光的眼睛/手/身体
-      r'electric\s+\w+', // 电流相关
-      r'energy\s+swirl', // 能量旋涡
-      r'powerful?\s+\w+', // 强力/强大的
-      r'explosion', // 爆炸
-      r'fire\s+\w+', // 火焰
-      r'violent?\s+\w+', // 暴力
-      r'attack\s+\w+', // 攻击
-      r'battle\s+\w+', // 战斗
-      r'fight\s+\w+', // 打斗
-      r'weapon', // 武器
-      r'danger', // 危险
-      r'threaten', // 威胁
-      r'aggressive', // 激进
-      r'intense', // 强烈（可能被误判）
-      r'dramatic\s+lightning', // 戏剧性闪电
-      r'fierce', // 凶猛
-      r'determination\s*\([^)]*\)', // 坚定的（可能带眼睛描述）
-      r'sweating', // 流汗（紧张氛围）
-      r'trembling\s+spoon', // 颤抖的勺子
-      r'gripping\s+spoon', // 紧握勺子
-    ];
-
+    final violentPatterns = [r'lightning\s+effects?', r'glowing\s+(eyes|hands|body)', r'electric\s+\w+', r'energy\s+swirl', r'powerful?\s+\w+', r'explosion', r'fire\s+\w+', r'violent?\s+\w+', r'attack\s+\w+', r'battle\s+\w+', r'fight\s+\w+', r'weapon', r'danger', r'threaten', r'aggressive', r'intense', r'dramatic\s+lightning', r'fierce'];
     for (final pattern in violentPatterns) {
       sanitized = sanitized.replaceAll(RegExp(pattern, caseSensitive: false), 'gentle');
     }
-
-    // 替换为积极正向的词汇
-    final replacements = {
-      'lightning': 'soft light',
-      'glowing': 'bright',
-      'energy': 'atmosphere',
-      'swirl': 'flow',
-      'powerful': 'beautiful',
-      'strong': 'elegant',
-      'fierce': 'calm',
-      'intense': 'warm',
-      'dramatic': 'peaceful',
-      'action': 'scene',
-      'dynamic': 'smooth',
-      'gripping': 'holding',
-      'trembling': 'gentle',
-    };
-
+    final replacements = {'lightning': 'soft light', 'glowing': 'bright', 'energy': 'atmosphere', 'swirl': 'flow', 'powerful': 'beautiful', 'strong': 'elegant', 'fierce': 'calm', 'intense': 'warm', 'dramatic': 'peaceful', 'action': 'scene', 'dynamic': 'smooth'};
     for (final entry in replacements.entries) {
       sanitized = sanitized.replaceAll(RegExp(entry.key, caseSensitive: false), entry.value);
     }
-
-    // 添加安全的前缀和后缀
-    final result = 'Peaceful anime style scene. $sanitized. Calm and positive atmosphere.';
-
-    AppLogger.info('视频提示词清理', '清理后提示词: $result');
-
-    return result;
+    return 'Peaceful anime style scene. $sanitized. Calm and positive atmosphere.';
   }
 
-  /// 使用 AI 重写视频提示词，保留原意但使用安全的表达方式
-  /// 用于重试失败的视频生成任务
-  Future<String> rewriteVideoPromptForSafety({
-    required String originalPrompt,
-    required String sceneNarration, // 场景旁白，帮助理解上下文
-  }) async {
-    AppLogger.info('提示词重写', '原始提示词: $originalPrompt');
-    AppLogger.info('提示词重写', '场景旁白: $sceneNarration');
-
-    final rewritePrompt = '''
-你是一个专业的视频提示词优化专家。你的任务是将视频提示词重写为100%安全的表达方式，确保通过平台的内容审核。
-
-**原始场景旁白**:
-$sceneNarration
-
-**原始视频提示词**:
-$originalPrompt
-
-*** 关键：必须严格避免以下所有禁用词汇 ***
-
-绝对禁止的词汇（会导致平台拒绝）:
-- 能量/特效类: lightning, electric, thunderbolt, energy, power surge, spark, voltage, current
-- 战斗/冲突类: attack, battle, fight, punch, kick, hit, strike, slam, crash, smash, beat, combat, clash, struggle
-- 危险元素: fire, flame, burn, explosion, explode, blast, bomb, smoke, weapon, sword, knife, gun
-- 负面情绪: fierce, intense, aggressive, violent, rage, angry, furious, terrified, scream, shout, yell, panic
-- 身体恐怖: glowing eyes, red eyes, blood, wound, injury, transform, mutate, distort, twisted
-- 危险动作: fall, drop, trip, stumble, chase, flee, escape, running
-
-安全替代词汇（必须使用）:
-- lightning/electric → soft light, warm light, gentle light, ambient light
-- fight/attack → move toward, approach, face each other, interaction
-- fierce/intense → warm, calm, gentle, peaceful, soft
-- explosion/fire → bloom, brighten, illuminate, radiate
-- angry/rage → concerned, surprised, amazed, excited
-
-每个提示词必须包含至少2个安全词汇:
-gentle, soft, calm, peaceful, warm, bright, smooth, quiet, serene, beautiful, lovely, sweet, slowly, smoothly, gracefully
-
-镜头移动必须使用: slowly, gently, softly, calmly
-绝不能使用: quick, fast, sudden, rapid, sharp, violent
-
-请直接输出重写后的英文提示词，不要有任何解释。确保提示词50词以内，包含场景的核心动作和情感。
-''';
-
+  Future<String> rewriteVideoPromptForSafety({required String originalPrompt, required String sceneNarration}) async {
     try {
-      final response = await _dio.post(
-        '/chat/completions',
-        data: {
-          'model': 'glm-4-flash', // 使用快速模型
-          'messages': [
-            {'role': 'user', 'content': rewritePrompt}
-          ],
-          'temperature': 0.7,
-        },
-      );
-
-      AppLogger.apiResponseRaw('/chat/completions (提示词重写)', response.data);
-
-      // 解析 GLM 响应（OpenAI 格式）
-      final choices = response.data['choices'] as List?;
-      if (choices == null || choices.isEmpty) {
-        throw Exception('GLM API 响应格式错误：没有 choices');
-      }
-
-      final firstChoice = choices[0] as Map<String, dynamic>?;
-      final message = firstChoice?['message'] as Map<String, dynamic>?;
-      final rewrittenPrompt = message?['content'] as String?;
-
-      if (rewrittenPrompt == null || rewrittenPrompt.isEmpty) {
-        throw Exception('GLM API 响应中没有内容');
-      }
-
-      final cleaned = rewrittenPrompt.trim();
-
-      AppLogger.success('提示词重写', '重写后提示词: $cleaned');
-      return cleaned;
+      final dio = await ApiConfig.getRequiredDio('chat');
+      final model = await ApiConfig.getRequiredModel('chat');
+      final rewritePrompt = '将以下视频提示词重写为100%安全的表达，避免所有暴力、能量、负面情绪词汇。50词以内。\n原始: $originalPrompt\n旁白: $sceneNarration\n直接输出重写后的英文提示词。';
+      
+      final response = await dio.post('/chat/completions', data: {
+        'model': model,
+        'messages': [{'role': 'user', 'content': rewritePrompt}],
+        'temperature': 0.7,
+      });
+      final rewritten = response.data['choices']?[0]?['message']?['content'] as String?;
+      return rewritten?.trim() ?? _sanitizeVideoPrompt(originalPrompt);
     } catch (e) {
-      AppLogger.error('提示词重写', 'AI重写失败，使用简单过滤', e);
-      // 降级到简单过滤
       return _sanitizeVideoPrompt(originalPrompt);
     }
   }
 
-  // ==================== Chat 格式图生图 API (角色一致性) ====================
-
-  /// 使用 chat 格式图生图 API 生成图片（支持传入角色参考图 URL）
-  /// 用于场景2+的图片生成，通过传入角色三视图保持人物一致性
-  /// [prompt] 场景描述文本
-  /// [characterImageUrls] 角色参考图 URL 列表（三视图）
-  /// 返回生成的图片 URL
-  Future<String> generateImageWithCharacterReference(
-    String prompt, {
-    required List<String> characterImageUrls,
-  }) async {
-    // Mock 模式
-    if (ApiConfig.USE_MOCK_IMAGE_API) {
-      AppLogger.warn('图生图(角色)', '🧪 使用 Mock 模式');
-      AppLogger.info('图生图(角色)[MOCK]', 'Prompt: $prompt');
-      AppLogger.info('图生图(角色)[MOCK]', '参考图数量: ${characterImageUrls.length}');
-      await Future.delayed(const Duration(milliseconds: 500));
-      return ApiConfig.MOCK_IMAGE_URL;
-    }
-
-    AppLogger.info('图生图(角色)', '开始生成，参考图数量: ${characterImageUrls.length}');
-    AppLogger.info('图生图(角色)', 'Prompt: $prompt');
-
+  // ==================== 图生图（动态 image 模型） ====================
+  Future<String> generateImageWithCharacterReference(String prompt, {required List<String> characterImageUrls}) async {
+    if (ApiConfig.USE_MOCK_IMAGE_API) return ApiConfig.MOCK_IMAGE_URL;
     try {
-      final dio = Dio(BaseOptions(
-        baseUrl: ApiConfig.tuziBaseUrl,
-        connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 500),
-        headers: {
-          'Authorization': 'Bearer ${ApiConfig.imageApiKey}',
-          'Content-Type': 'application/json',
-        },
-      ));
+      final dio = await ApiConfig.getRequiredDio('image');
+      final model = await ApiConfig.getRequiredModel('image');
 
-      // 构建 content 数组：文本 + 多张参考图
-      final List<Map<String, dynamic>> contentItems = [];
-
-      // 添加文本提示
-      contentItems.add({
-        'type': 'text',
-        'text': prompt,
-      });
-
-      // 添加角色参考图（三视图）
-      for (final imageUrl in characterImageUrls) {
-        if (imageUrl.isNotEmpty) {
-          contentItems.add({
-            'type': 'image_url',
-            'image_url': {
-              'url': imageUrl,
-            },
-          });
+      final contentItems = <Map<String, dynamic>>[{'type': 'text', 'text': prompt}];
+      for (final url in characterImageUrls) {
+        if (url.isNotEmpty) {
+          contentItems.add({'type': 'image_url', 'image_url': {'url': url}});
         }
       }
 
-      final requestBody = {
-        'model': 'gpt-4o-image-vip',
-        'stream': false,
-        'messages': [
-          {
-            'role': 'user',
-            'content': contentItems,
-          }
-        ],
-      };
-
-      AppLogger.apiRequestRaw('POST', '/v1/chat/completions (图生图)', requestBody);
-      AppLogger.info('图生图(角色)', '发送请求...');
-      final response = await dio.post(
-        '/v1/chat/completions',
-        data: requestBody,
-      );
-
-      AppLogger.apiResponseRaw('/v1/chat/completions (图生图)', response.data);
+      final requestBody = {'model': model, 'stream': false, 'messages': [{'role': 'user', 'content': contentItems}]};
+      final response = await dio.post('/v1/chat/completions', data: requestBody);
 
       if (response.statusCode == 200) {
-        final data = response.data;
-
-        // 解析响应获取图片 URL
-        // 响应格式: { choices: [{ message: { content: "url" } }] }
-        final choices = data['choices'] as List?;
+        final choices = response.data['choices'] as List?;
         if (choices != null && choices.isNotEmpty) {
-          final message = choices[0]['message'];
-          final content = message['content'];
-
-          // content 可能是字符串 URL 或包含图片的结构
-          String? imageUrl;
+          final content = choices[0]['message']['content'];
           if (content is String) {
-            // 直接是 URL 字符串
-            if (content.startsWith('http')) {
-              imageUrl = content;
-            } else {
-              // 可能是 Markdown 格式的复杂响应，需要提取图片 URL
-              try {
-                final parsed = content;
-
-                // 策略1: 优先匹配 markdown 图片格式 ![alt](url)
-                final markdownImageMatch = RegExp(r'!\[.*?\]\((https://pro\.filesystem\.site/cdn/[^\)]+)\)').firstMatch(parsed);
-                if (markdownImageMatch != null) {
-                  imageUrl = markdownImageMatch.group(1);
-                  AppLogger.info('图生图(角色)', '从 Markdown 图片格式提取 URL: $imageUrl');
-                }
-
-                // 策略2: 如果没找到，匹配 pro.filesystem.site 的图片 URL
-                if (imageUrl == null) {
-                  final cdnUrlMatch = RegExp(r'https://pro\.filesystem\.site/cdn/[^\s\])"]+').firstMatch(parsed);
-                  if (cdnUrlMatch != null) {
-                    imageUrl = cdnUrlMatch.group(0);
-                    AppLogger.info('图生图(角色)', '从 CDN URL 提取: $imageUrl');
-                  }
-                }
-
-                // 策略3: 兜底 - 提取所有 URL 并过滤预览页面
-                if (imageUrl == null) {
-                  final allUrls = RegExp(r'https?://[^\s\])"]+').allMatches(parsed).map((m) => m.group(0)!).toList();
-                  AppLogger.info('图生图(角色)', '找到的所有 URL: $allUrls');
-                  // 过滤掉 pro.asyncdata.net/web 预览链接
-                  for (final url in allUrls) {
-                    if (!url.contains('pro.asyncdata.net/web')) {
-                      imageUrl = url;
-                      break;
-                    }
-                  }
-                }
-              } catch (e) {
-                AppLogger.error('图生图(角色)', '解析 URL 失败: $e', e, StackTrace.current);
-              }
-            }
+            final match = RegExp(r'https://pro\.filesystem\.site/cdn/[^\s\])"]+').firstMatch(content);
+            if (match != null) return match.group(0)!;
+            if (content.startsWith('http')) return content;
           } else if (content is List) {
-            // content 是数组，查找图片类型
             for (final item in content) {
-              if (item['type'] == 'image_url') {
-                imageUrl = item['image_url']?['url'];
-                break;
-              }
+              if (item['type'] == 'image_url') return item['image_url']?['url'];
             }
-          }
-
-          if (imageUrl != null && imageUrl.isNotEmpty) {
-            AppLogger.success('图生图(角色)', '图片生成成功: $imageUrl');
-            return imageUrl;
           }
         }
-
-        AppLogger.error('图生图(角色)', '响应中未找到图片 URL', null, StackTrace.current);
-        throw Exception('响应中未找到图片 URL');
-      } else {
-        throw Exception('请求失败: ${response.statusCode}');
       }
+      throw Exception('图生图失败：未找到图片 URL');
     } catch (e) {
-      AppLogger.error('图生图(角色)', '生成失败: $e', e, StackTrace.current);
-
-      // 如果新接口失败，降级使用原有的文本生成方式
-      AppLogger.warn('图生图(角色)', '降级到文本生成模式');
       return generateImage(prompt);
     }
   }
 
-  // ==================== 角色三视图生成 API ====================
-
-  /// 为角色生成组合三视图（一张图包含正面、侧面、背面三个视角）
-  /// 新版本：生成单张组合图，用于视频生成时保持人物一致性
-  /// [characterName] 角色名称
-  /// [description] 角色描述
-  /// [referenceImages] 参考图片（用户上传的角色参考图）
-  /// [onProgress] 进度回调 (0.0 - 1.0)
-  /// 返回 CharacterSheet 对象，包含组合三视图 URL
-  Future<CharacterSheet> generateCharacterSheets(
-    String characterName,
-    String description, {
-    List<String>? referenceImages,
-    void Function(double progress, String status)? onProgress,
-  }) async {
-    AppLogger.info('角色三视图', '开始生成角色 $characterName 的组合三视图');
-
-    // ========================================
-    // Mock 模式：直接返回模拟结果
-    // ========================================
+  // ==================== 角色三视图（动态 image 模型） ====================
+  Future<CharacterSheet> generateCharacterSheets(String characterName, String description, {List<String>? referenceImages, void Function(double, String)? onProgress}) async {
     if (ApiConfig.USE_MOCK_CHARACTER_SHEET_API) {
-      AppLogger.warn('角色三视图', '🧪 使用 Mock 模式，不调用真实 API');
-      AppLogger.info('角色三视图[MOCK]', '角色名: $characterName');
-      AppLogger.info('角色三视图[MOCK]', '描述: $description');
-      if (referenceImages != null && referenceImages.isNotEmpty) {
-        AppLogger.info('角色三视图[MOCK]', '参考图数量: ${referenceImages.length}');
-      }
-
-      onProgress?.call(0.0, '准备生成角色组合三视图...');
-
-      // 模拟网络延迟
       await Future.delayed(const Duration(milliseconds: 500));
-
-      onProgress?.call(0.5, '生成组合三视图...');
-      await Future.delayed(const Duration(milliseconds: 500));
-      AppLogger.success('角色三视图[MOCK]', '组合三视图生成完成: ${ApiConfig.MOCK_CHARACTER_COMBINED_URL}');
-
-      final sheetId = 'char_${DateTime.now().millisecondsSinceEpoch}';
-      final characterId = 'char_${characterName.hashCode}';
-
-      final completedSheet = CharacterSheet(
-        id: sheetId,
-        characterId: characterId,
-        characterName: characterName,
-        description: description,
-        role: '主角',
-        combinedViewUrl: ApiConfig.MOCK_CHARACTER_COMBINED_URL,
-        status: CharacterSheetStatus.completed,
-      );
-
-      onProgress?.call(1.0, '角色组合三视图生成完成！');
-      AppLogger.success('角色三视图[MOCK]', '角色 $characterName 的组合三视图生成完成');
-
-      return completedSheet;
+      return CharacterSheet(id: 'char_${DateTime.now().millisecondsSinceEpoch}', characterId: 'char_${characterName.hashCode}', characterName: characterName, description: description, role: '主角', combinedViewUrl: ApiConfig.MOCK_CHARACTER_COMBINED_URL, status: CharacterSheetStatus.completed);
     }
-
-    // ========================================
-    // 真实 API 调用模式
-    // ========================================
-
-    // 创建角色设定表对象
-    final sheetId = 'char_${DateTime.now().millisecondsSinceEpoch}';
-    final characterId = 'char_${characterName.hashCode}';
-
-    onProgress?.call(0.0, '准备生成角色组合三视图...');
-
     try {
-      // 生成组合三视图（一张图包含正面、侧面、背面）
       onProgress?.call(0.2, '生成组合三视图...');
       final combinedPrompt = _buildCombinedViewPrompt(description);
-      final combinedUrl = await generateImage(
-        combinedPrompt,
-        referenceImages: referenceImages,
-      );
-      AppLogger.success('角色三视图', '组合三视图生成完成: $combinedUrl');
-
-      // 创建完成的角色设定表
-      final completedSheet = CharacterSheet(
-        id: sheetId,
-        characterId: characterId,
-        characterName: characterName,
-        description: description,
-        role: '主角',
-        combinedViewUrl: combinedUrl,
-        status: CharacterSheetStatus.completed,
-      );
-
-      onProgress?.call(1.0, '角色组合三视图生成完成！');
-      AppLogger.success('角色三视图', '角色 $characterName 的组合三视图生成完成');
-
-      return completedSheet;
+      final combinedUrl = await generateImage(combinedPrompt, referenceImages: referenceImages);
+      return CharacterSheet(id: 'char_${DateTime.now().millisecondsSinceEpoch}', characterId: 'char_${characterName.hashCode}', characterName: characterName, description: description, role: '主角', combinedViewUrl: combinedUrl, status: CharacterSheetStatus.completed);
     } catch (e) {
-      AppLogger.error('角色三视图', '生成角色组合三视图失败', e, StackTrace.current);
-      throw Exception('角色组合三视图生成失败: $e');
+      throw Exception('角色三视图生成失败: $e');
     }
   }
 
-  /// 构建组合三视图的提示词
-  /// 生成一张图片，包含角色的正面、侧面、背面三个视角
   String _buildCombinedViewPrompt(String description) {
-    // 基础描述
-    final baseDesc = description.isNotEmpty
-        ? description
-        : 'A character in anime/manga style';
-
-    // 组合三视图提示词
-    return '''
-Character turnaround sheet with three views side by side:
-LEFT: Front view (facing forward)
-CENTER: Side view (profile, facing right)
-RIGHT: Back view (showing the back)
-
-Character: $baseDesc
-
-Layout: Three full body shots arranged horizontally in a single image
-Style: anime/manga art style, clean line art, flat colors, professional character design sheet, character reference sheet
-Quality: high quality, detailed, 4k, consistent proportions across all views
-Background: plain white or light gray background
-Composition: all three views same size, equal spacing, full body visible, neutral standing pose, T-pose or A-pose preferred
-'''.trim();
+    return 'Character turnaround sheet with three views side by side:\nLEFT: Front view\nCENTER: Side view\nRIGHT: Back view\nCharacter: ${description.isEmpty ? 'A character in anime/manga style' : description}\nStyle: anime/manga art style, clean line art, flat colors, professional character design sheet\nBackground: plain white or light gray background\nComposition: all three views same size, equal spacing, full body visible, neutral standing pose';
   }
 
-  /// 兼容旧版：构建单视图提示词
-  @Deprecated('使用 _buildCombinedViewPrompt 替代')
-  String _buildCharacterViewPrompt(String description, CharacterViewType viewType) {
-    // 基础描述
-    final baseDesc = description.isNotEmpty
-        ? description
-        : 'A character in anime/manga style';
-
-    // 根据视图类型添加特定描述
-    final viewDesc = viewType == CharacterViewType.front
-        ? 'front view, facing forward, full body shot, standing pose'
-        : viewType == CharacterViewType.back
-            ? 'back view, showing the back of the character, full body shot, standing pose'
-            : 'side view, profile view, full body shot, standing pose';
-
-    // 组合提示词
-    return '''
-$viewDesc
-
-Character: $baseDesc
-
-Style: anime/manga art style, clean line art, flat colors, professional character design sheet
-Quality: high quality, detailed, 4k
-Background: plain white or light gray background for character reference
-Composition: centered, full body visible, neutral standing pose
-'''.trim();
-  }
-
-  /// 批量生成多个角色的三视图
-  /// [characters] 角色列表，格式为 {'name': '角色名', 'description': '描述'}
-  /// [referenceImages] 参考图片
-  /// [onProgress] 进度回调 (overall 0.0 - 1.0)
-  /// 返回角色设定表列表
-  Future<List<CharacterSheet>> generateMultipleCharacterSheets(
-    List<Map<String, String>> characters, {
-    List<String>? referenceImages,
-    void Function(double progress, String status)? onProgress,
-  }) async {
+  Future<List<CharacterSheet>> generateMultipleCharacterSheets(List<Map<String, String>> characters, {List<String>? referenceImages, void Function(double, String)? onProgress}) async {
     final List<CharacterSheet> sheets = [];
-
     for (int i = 0; i < characters.length; i++) {
       final char = characters[i];
-      final name = char['name'] ?? '角色${i + 1}';
-      final desc = char['description'] ?? '';
-
-      final overallProgress = i / characters.length;
-      onProgress?.call(
-        overallProgress,
-        '正在生成 $name 的三视图 (${i + 1}/${characters.length})...',
-      );
-
-      final sheet = await generateCharacterSheets(
-        name,
-        desc,
-        referenceImages: referenceImages,
-        onProgress: (viewProgress, viewStatus) {
-          // 将单角色进度转换为总进度
-          final currentOverall = (i + viewProgress) / characters.length;
-          onProgress?.call(currentOverall, viewStatus);
-        },
-      );
-
-      sheets.add(sheet);
+      onProgress?.call(i / characters.length, '正在生成 ${char['name']} 的三视图...');
+      sheets.add(await generateCharacterSheets(char['name'] ?? '角色${i + 1}', char['description'] ?? '', referenceImages: referenceImages));
     }
-
     onProgress?.call(1.0, '所有角色三视图生成完成！');
     return sheets;
   }
 
-  // ==================== 图片生成视频 API (Tuzi Sora) ====================
-
-  /// 从 URL 下载图片到本地临时文件
-  Future<File> _downloadImage(String imageUrl) async {
-    try {
-      // 下载图片
-      final response = await _dio.get(
-        imageUrl,
-        options: Options(responseType: ResponseType.bytes),
-      );
-
-      // 获取临时目录
-      final tempDir = await getTemporaryDirectory();
-
-      // 生成唯一文件名
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = path.extension(imageUrl).isNotEmpty
-          ? path.extension(imageUrl)
-          : '.png';
-      final filename = 'temp_image_$timestamp$extension';
-      final filePath = path.join(tempDir.path, filename);
-
-      // 写入文件
-      final file = File(filePath);
-      await file.writeAsBytes(response.data as List<int>);
-
-      return file;
-    } catch (e) {
-      throw Exception('图片下载错误: $e');
-    }
-  }
-
-  /// 使用 Tuzi 视频生成 API 从图片生成视频（异步任务模式）
-  ///
-  /// 支持的模型:
-  /// - veo3.1: Google Veo 3.1 (单图片，首帧)
-  /// - veo3.1-components: 支持多图片输入（最多3张参考图，URL字符串数组）
-  /// - sora-1: OpenAI Sora 1
-  /// - sora-2-pro: OpenAI Sora 2 Pro
-  ///
-  /// 工作流程：
-  /// 1. 提交任务到 POST /v1/videos，获取 task_id
-  /// 2. 使用 [pollVideoStatus] 轮询任务状态
-  /// 3. 当 status 为 completed 时获取 video_url
+  // ==================== 视频生成（动态 video 模型） ====================
   Future<VideoGenerationResponse> generateVideo({
     required String prompt,
-    List<String> imageUrls = const [], // 多张参考图URL（直接传URL字符串）
+    List<String> imageUrls = const [],
     String seconds = '10',
-    String model = 'veo3.1-components',  // 默认使用 veo3.1-components 支持多图
+    String model = '',
     String size = '1280x720',
-    bool sanitizePrompt = false, // 是否清理提示词（重试时使用）
+    bool sanitizePrompt = false,
   }) async {
-    // 如果启用清理，对提示词进行安全处理
-    final finalPrompt = sanitizePrompt ? _sanitizeVideoPrompt(prompt) : prompt;
-
-    // ========================================
-    // Mock 模式：直接返回模拟结果
-    // ========================================
     if (ApiConfig.USE_MOCK_VIDEO_API) {
-      AppLogger.warn('视频生成', '🧪 使用 Mock 模式，不调用真实 API');
-      AppLogger.info('视频生成', '参考图数量: ${imageUrls.length}');
-
-      await Future.delayed(const Duration(seconds: 2)); // 模拟网络延迟
-
-      return VideoGenerationResponse(
-        id: 'mock_task_${DateTime.now().millisecondsSinceEpoch}',
-        object: 'video',
-        model: model,
-        status: 'completed',
-        progress: 100,
-        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        seconds: seconds,
-        videoUrl: ApiConfig.MOCK_VIDEO_URL,
-      );
+      await Future.delayed(const Duration(seconds: 2));
+      return VideoGenerationResponse(id: 'mock_task_${DateTime.now().millisecondsSinceEpoch}', object: 'video', model: model, status: 'completed', progress: 100, createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000, seconds: seconds, videoUrl: ApiConfig.MOCK_VIDEO_URL);
     }
 
-    // ========================================
-    // 生产模式：调用真实 Tuzi Sora API
-    // ========================================
     try {
-      AppLogger.info('视频生成', '开始生成视频: $finalPrompt, 时长: ${seconds}秒, 模型: $model');
-      AppLogger.info('视频生成', '参考图数量: ${imageUrls.length}');
-      AppLogger.info('视频生成', '参考图URL: $imageUrls');
+      final dio = await ApiConfig.getRequiredDio('video');
+      String finalModel = model;
+      if (finalModel.isEmpty || finalModel == 'veo3.1-components') {
+        finalModel = await ApiConfig.getRequiredModel('video');
+      }
 
-      // 步骤 1: 准备 FormData 请求数据（API 要求 multipart/form-data 格式）
+      final finalPrompt = sanitizePrompt ? _sanitizeVideoPrompt(prompt) : prompt;
       final formData = FormData.fromMap({
-        'model': model,
+        'model': finalModel,
         'prompt': finalPrompt,
         'seconds': seconds,
         'size': size,
         'watermark': 'false',
       });
-
-      // 如果有参考图，每张图片作为单独的 input_reference 字段添加
-      // multipart/form-data 格式支持同名多值
       for (final imageUrl in imageUrls) {
         formData.fields.add(MapEntry('input_reference', imageUrl));
       }
 
-      AppLogger.apiRequestRaw('POST', '/v1/videos', {
-        'model': model,
-        'prompt': finalPrompt,
-        'seconds': seconds,
-        'size': size,
-        'watermark': 'false',
-        'input_reference': imageUrls,
-      });
-
-      // 步骤 2: 提交任务
-      final response = await _tuziDio.post(
-        '/v1/videos',
-        data: formData,
-      );
-
-      AppLogger.apiResponseRaw('/v1/videos', response.data);
-
-      final result = VideoGenerationResponse.fromJson(response.data);
-
-      if (result.isCompleted && result.hasVideoUrl) {
-        AppLogger.success('视频生成', '视频生成成功: ${result.videoUrl}');
-      } else if (result.isFailed) {
-        AppLogger.error('视频生成', '视频生成失败: ${result.error}', null, StackTrace.current);
-      } else {
-        AppLogger.info('视频生成', '任务已提交: ${result.id}, 状态: ${result.status}');
-      }
-
-      return result;
+      final response = await dio.post('/v1/videos', data: formData);
+      return VideoGenerationResponse.fromJson(response.data);
     } catch (e) {
-      AppLogger.error('视频生成', '生成视频失败', e, StackTrace.current);
       throw Exception('视频生成错误: $e');
     }
   }
 
-  /// 轮询视频生成任务状态，直到完成或失败
-  ///
-  /// 参数:
-  /// - [taskId] 任务 ID
-  /// - [timeout] 超时时间（默认 10 分钟）
-  /// - [interval] 轮询间隔（默认 2 秒）
-  /// - [onProgress] 进度回调，每次轮询时调用
-  ///
-  /// 返回: 完成状态的 VideoGenerationResponse
   Future<VideoGenerationResponse> pollVideoStatus({
     required String taskId,
     Duration timeout = const Duration(minutes: 10),
     Duration interval = const Duration(seconds: 2),
-    void Function(int progress, String status)? onProgress,
-    bool Function()? isCancelled, // 取消检查回调
+    void Function(int, String)? onProgress,
+    bool Function()? isCancelled,
   }) async {
-    // ========================================
-    // Mock 模式：直接返回模拟完成状态
-    // ========================================
     if (ApiConfig.USE_MOCK_VIDEO_API) {
-      AppLogger.warn('视频轮询', '🧪 Mock 模式，模拟轮询过程');
-
-      // 模拟进度变化
       for (int progress = 0; progress <= 100; progress += 25) {
-        // 检查取消
-        if (isCancelled?.call() == true) {
-          throw Exception('操作已取消');
-        }
-        await Future.delayed(const Duration(milliseconds: 500)); // Mock模式用更短延迟
-        AppLogger.info('视频轮询', '模拟进度: $progress%');
+        if (isCancelled?.call() == true) throw Exception('操作已取消');
+        await Future.delayed(const Duration(milliseconds: 500));
         onProgress?.call(progress, 'in_progress');
       }
-
-      return VideoGenerationResponse(
-        id: taskId,
-        object: 'video',
-        model: 'veo3.1',
-        status: 'completed',
-        progress: 100,
-        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        seconds: '10',
-        videoUrl: ApiConfig.MOCK_VIDEO_URL,
-      );
+      return VideoGenerationResponse(id: taskId, object: 'video', model: 'veo3.1', status: 'completed', progress: 100, createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000, seconds: '10', videoUrl: ApiConfig.MOCK_VIDEO_URL);
     }
 
-    // ========================================
-    // 生产模式：真实轮询
-    // ========================================
+    final dio = await ApiConfig.getRequiredDio('video');
     final startTime = DateTime.now();
-    AppLogger.info('视频轮询', '开始轮询任务: $taskId');
+    while (true) {
+      if (isCancelled?.call() == true) throw Exception('操作已取消');
+      if (DateTime.now().difference(startTime) > timeout) throw Exception('视频生成超时');
+      
+      final response = await dio.get('/v1/videos/$taskId');
+      final result = VideoGenerationResponse.fromJson(response.data);
+      onProgress?.call(result.progress ?? 0, result.status ?? 'unknown');
 
-    try {
-      while (true) {
-        // 检查取消（在每次循环开始时检查）
-        if (isCancelled?.call() == true) {
-          AppLogger.warn('视频轮询', '用户取消操作');
-          throw Exception('操作已取消');
-        }
+      if (result.isCompleted) return result;
+      if (result.isFailed) throw Exception('视频生成失败: ${result.error ?? "未知错误"}');
 
-        // 检查超时
-        if (DateTime.now().difference(startTime) > timeout) {
-          throw Exception('视频生成超时（超过 ${timeout.inMinutes} 分钟）');
-        }
-
-        // 查询状态
-        final response = await _tuziDio.get('/v1/videos/$taskId');
-        final result = VideoGenerationResponse.fromJson(response.data);
-
-        AppLogger.apiResponseRaw('/v1/videos/$taskId', response.data);
-        AppLogger.info('视频轮询', '状态: ${result.status}, 进度: ${result.progress ?? 0}%');
-
-        // 回调进度更新
-        onProgress?.call(result.progress ?? 0, result.status ?? 'unknown');
-
-        // 检查是否完成
-        if (result.isCompleted) {
-          if (result.hasVideoUrl) {
-            AppLogger.success('视频轮询', '视频生成完成: ${result.videoUrl}');
-            return result;
-          } else {
-            throw Exception('任务已完成但没有视频 URL');
-          }
-        }
-
-        // 检查是否失败
-        if (result.isFailed) {
-          throw Exception('视频生成失败: ${result.error ?? "未知错误"}');
-        }
-
-        // 等待后继续轮询 - 分片等待以更快响应取消
-        final waitSteps = 5; // 将等待分成5段，每段0.4秒（总共2秒）
-        for (int i = 0; i < waitSteps; i++) {
-          await Future.delayed(interval ~/ waitSteps);
-          // 每小段都检查取消，提高响应速度
-          if (isCancelled?.call() == true) {
-            AppLogger.warn('视频轮询', '等待期间用户取消操作');
-            throw Exception('操作已取消');
-          }
-        }
+      for (int i = 0; i < 5; i++) {
+        await Future.delayed(interval ~/ 5);
+        if (isCancelled?.call() == true) throw Exception('操作已取消');
       }
-    } catch (e) {
-      AppLogger.error('视频轮询', '轮询失败', e, StackTrace.current);
-      rethrow;
     }
   }
 
-  // ==================== 工具方法 ====================
-
-  /// 下载任何文件到临时目录
+  // ==================== 通用文件下载 ====================
   Future<File> downloadFile(String url, {String? filename}) async {
     try {
-      final response = await _dio.get(
-        url,
-        options: Options(responseType: ResponseType.bytes),
-      );
-
+      final response = await Dio().get(url, options: Options(responseType: ResponseType.bytes));
       final tempDir = await getTemporaryDirectory();
-      final finalFilename = filename ??
-          'file_${DateTime.now().millisecondsSinceEpoch}${path.extension(url)}';
-      final filePath = path.join(tempDir.path, finalFilename);
-
-      final file = File(filePath);
+      final finalFilename = filename ?? 'file_${DateTime.now().millisecondsSinceEpoch}${path.extension(url)}';
+      final file = File(path.join(tempDir.path, finalFilename));
       await file.writeAsBytes(response.data as List<int>);
-
       return file;
     } catch (e) {
       throw Exception('文件下载错误: $e');
