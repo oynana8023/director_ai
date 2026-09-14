@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 
-// ==================== 新增动态配置引用 ====================
+// ==================== 动态配置引用 ====================
 import 'llm_config_store.dart';
 // ========================================================
 
@@ -474,7 +474,8 @@ class ApiConfig {
   static const String MOCK_CHARACTER_COMBINED_URL = 'https://pro.filesystem.site/cdn/20251231/068472ac4cc0ac7a4a8bdb3dcfb693.jpeg';
 
   // ==================== 动态获取配置 ====================
-  /// 获取指定用途的 Dio 实例，如果未绑定则抛出异常
+
+  /// 获取指定用途的 Dio 实例（用绑定的配置里的 baseUrl + apiKey）
   static Future<Dio> getRequiredDio(String usage) async {
     final config = await LLMConfigStore().getActiveConfig(usage);
     if (config == null || config.baseUrl.isEmpty) {
@@ -491,13 +492,13 @@ class ApiConfig {
     ));
   }
 
-  /// 获取指定用途的模型名称，如果未选择则抛出异常
+  /// 获取指定用途绑定的具体模型 ID（从绑定关系里读）
   static Future<String> getRequiredModel(String usage) async {
-    final config = await LLMConfigStore().getActiveConfig(usage);
-    if (config == null || config.selectedModelId == null || config.selectedModelId!.isEmpty) {
-      throw Exception('请先去设置页面选择【$usage】模型');
+    final modelId = await LLMConfigStore().getActiveModelId(usage);
+    if (modelId == null || modelId.isEmpty) {
+      throw Exception('请先去设置页面为【$usage】绑定一个具体的模型');
     }
-    return config.selectedModelId!;
+    return modelId;
   }
 
   // 兼容旧代码（标记为已弃用，防止原文件其他地方报错）
@@ -903,7 +904,7 @@ class ApiService {
       final dio = await ApiConfig.getRequiredDio('chat');
       final model = await ApiConfig.getRequiredModel('chat');
       final rewritePrompt = '将以下视频提示词重写为100%安全的表达，避免所有暴力、能量、负面情绪词汇。50词以内。\n原始: $originalPrompt\n旁白: $sceneNarration\n直接输出重写后的英文提示词。';
-      
+
       final response = await dio.post('/chat/completions', data: {
         'model': model,
         'messages': [{'role': 'user', 'content': rewritePrompt}],
@@ -1046,7 +1047,7 @@ class ApiService {
     while (true) {
       if (isCancelled?.call() == true) throw Exception('操作已取消');
       if (DateTime.now().difference(startTime) > timeout) throw Exception('视频生成超时');
-      
+
       final response = await dio.get('/v1/videos/$taskId');
       final result = VideoGenerationResponse.fromJson(response.data);
       onProgress?.call(result.progress ?? 0, result.status ?? 'unknown');
